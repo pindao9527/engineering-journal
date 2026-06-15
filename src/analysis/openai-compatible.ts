@@ -30,12 +30,24 @@ const ANALYSIS_FIELDS = [
   "humanReviewNotes"
 ] as const;
 
+interface AnalysisModelOutput extends Partial<JournalAnalysis> {
+  tags?: unknown;
+}
+
+export interface EventAnalysisResult {
+  analysis: JournalAnalysis;
+  tags: string[];
+}
+
 export async function analyzeEventWithOpenAICompatibleApi(
   event: JournalEvent,
   config: AnalysisConfig | undefined
-): Promise<JournalAnalysis> {
+): Promise<EventAnalysisResult> {
   if (!config?.enabled) {
-    return event.analysis;
+    return {
+      analysis: event.analysis,
+      tags: event.tags
+    };
   }
 
   if (config.provider && config.provider !== "openai-compatible") {
@@ -72,10 +84,15 @@ export async function analyzeEventWithOpenAICompatibleApi(
     throw new Error("OpenAI-compatible analysis returned no text content.");
   }
 
-  return normalizeAnalysis({
-    ...event.analysis,
-    ...parseAnalysisJson(content)
-  });
+  const parsed = parseAnalysisJson(content);
+
+  return {
+    analysis: normalizeAnalysis({
+      ...event.analysis,
+      ...parsed
+    }),
+    tags: normalizeTags([...event.tags, ...stringArray(parsed.tags)])
+  };
 }
 
 function endpointUrl(baseUrl: string, api: "responses" | "chat-completions"): string {
@@ -153,11 +170,15 @@ function toAnalysisPayload(event: JournalEvent): object {
     changedFiles: event.changedFiles,
     diffStats: event.diffStats,
     existingRuleBasedAnalysis: event.analysis,
-    expectedJsonShape: Object.fromEntries(ANALYSIS_FIELDS.map((field) => [field, ["string"]]))
+    existingTags: event.tags,
+    expectedJsonShape: {
+      ...Object.fromEntries(ANALYSIS_FIELDS.map((field) => [field, ["string"]])),
+      tags: ["string"]
+    }
   };
 }
 
-function parseAnalysisJson(content: string): Partial<JournalAnalysis> {
+function parseAnalysisJson(content: string): AnalysisModelOutput {
   const trimmed = content.trim();
   const withoutFence = trimmed
     .replace(/^```(?:json)?\s*/i, "")
@@ -165,7 +186,7 @@ function parseAnalysisJson(content: string): Partial<JournalAnalysis> {
     .trim();
 
   try {
-    return JSON.parse(withoutFence) as Partial<JournalAnalysis>;
+    return JSON.parse(withoutFence) as AnalysisModelOutput;
   } catch (error) {
     throw new Error(`OpenAI-compatible analysis returned invalid JSON: ${error instanceof Error ? error.message : error}`);
   }
@@ -186,4 +207,8 @@ function normalizeAnalysis(value: Partial<JournalAnalysis>): JournalAnalysis {
 
 function stringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+}
+
+function normalizeTags(tags: string[]): string[] {
+  return [...new Set(tags.map((tag) => tag.trim().toLowerCase()).filter(Boolean))].sort((a, b) => a.localeCompare(b));
 }

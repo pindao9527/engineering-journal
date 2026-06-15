@@ -56,6 +56,7 @@ export function renderDailyAutoSection(input: RenderDailyInput): string {
   const tests = input.events.flatMap((event) => event.analysis.tests);
   const aiAssistedParts = input.events.flatMap((event) => event.analysis.aiAssistedParts);
   const humanReviewNotes = input.events.flatMap((event) => event.analysis.humanReviewNotes);
+  const tags = unique(input.events.flatMap((event) => event.tags));
   const insertions = input.events.reduce((total, event) => total + event.diffStats.insertions, 0);
   const deletions = input.events.reduce((total, event) => total + event.diffStats.deletions, 0);
 
@@ -104,6 +105,7 @@ export function renderDailyAutoSection(input: RenderDailyInput): string {
     `- 提交数：${commits.length}`,
     `- 变更文件数：${changedFiles.length}`,
     `- 新增/删除：+${insertions} / -${deletions}`,
+    tags.length === 0 ? "- 标签：无" : `- 标签：${tags.join(", ")}`,
     changedFiles.length === 0 ? "- 变更文件：无" : `- 变更文件：${changedFiles.join(", ")}`,
     renderManualWarning(input.existingMarkdown)
   ]

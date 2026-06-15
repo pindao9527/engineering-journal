@@ -21,6 +21,7 @@ CLI 命令名为 `englog`。
 - `englog weekly/monthly/quarterly/half-year/yearly` 基于低一层日志生成周期总结，并提示缺失来源。
 - `englog render weekly/monthly/quarterly/half-year/yearly` 重渲染周期总结自动区，并保留人工区。
 - 可选 OpenAI-compatible API 分析接口，将模型返回的结构化结果写入事件 `analysis` 字段。
+- `englog analyze daily` 可对指定日期已有事件重新运行 AI 分析，支持 `--dry-run` 预览且不落盘。
 - `config`、`git`、`journal`、`storage`、`time` 等核心模块边界。
 - 构建、测试、类型检查和开发运行脚本。
 
@@ -90,6 +91,8 @@ englog quarterly --quarter 2026-Q2
 englog half-year --period 2026-H1
 englog yearly --year 2026
 englog render weekly --week 2026-W25
+englog analyze daily --date 2026-06-15 --dry-run
+englog analyze daily --date 2026-06-15
 englog status --date 2026-06-15
 ```
 
@@ -130,7 +133,19 @@ risks
 tests
 aiAssistedParts
 humanReviewNotes
+tags
 ```
+
+其中 `tags` 会写入事件顶层 `tags` 字段，并在日报“采集信息”里展示；其他字段写入事件 `analysis`。
+
+已有事件也可以重新分析：
+
+```bash
+englog analyze daily --date 2026-06-15 --dry-run
+englog analyze daily --date 2026-06-15
+```
+
+`--dry-run` 会打印将写入的分析结果，不修改事件 JSON 或日报。去掉 `--dry-run` 后，CLI 会更新当天事件的 `analysis` 字段，并重渲染对应日报自动区，人工区仍会保留。
 
 默认输出路径：
 

@@ -5,6 +5,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test, { mock } from "node:test";
 import { createProgram } from "../dist/cli.js";
+import { runAnalyzeDaily } from "../dist/commands/analyze.js";
 import { runDaily } from "../dist/commands/daily.js";
 
 const cliPath = path.resolve("dist", "cli.js");
@@ -16,6 +17,7 @@ test("creates the englog CLI program", () => {
   assert.match(program.helpInformation(), /daily/);
   assert.match(program.helpInformation(), /weekly/);
   assert.match(program.helpInformation(), /render/);
+  assert.match(program.helpInformation(), /analyze/);
   assert.match(program.helpInformation(), /status/);
 });
 
@@ -157,7 +159,8 @@ test("daily can enrich event analysis through an OpenAI-compatible API", async (
     risks: ["需要人工复核模型输出。"],
     tests: ["通过本地兼容接口集成测试验证。"],
     aiAssistedParts: ["模型生成自动分析字段。"],
-    humanReviewNotes: ["人工保留 manual 区域。"]
+    humanReviewNotes: ["人工保留 manual 区域。"],
+    tags: ["ai-analysis", "daily"]
   };
 
   try {
@@ -188,12 +191,92 @@ test("daily can enrich event analysis through an OpenAI-compatible API", async (
     const eventFiles = (await readdir(eventDirectory)).filter((file) => file.endsWith(".json"));
     const event = JSON.parse(await readFile(path.join(eventDirectory, eventFiles[0]), "utf8"));
     assert.deepEqual(event.analysis.summary, ["AI 归纳：生成日报骨架。"]);
+    assert.deepEqual(event.tags, ["ai-analysis", "daily"]);
     assert.deepEqual(requests[0].body.model, "gpt-5.5");
     assert.equal(requests[0].url, "https://ops-ai-gateway.yc345.tv/v1/responses");
     assert.equal(typeof requests[0].body.input, "string");
 
     const journal = await readFile(path.join(cwd, "journals", "daily", "2026-06-15.md"), "utf8");
     assert.match(journal, /AI 归纳：生成日报骨架/);
+  } finally {
+    fetchMock.mock.restore();
+    process.chdir(previousCwd);
+  }
+});
+
+test("analyze daily supports dry-run and can re-analyze stored events", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "englog-analyze-"));
+  runCli(["init"], cwd);
+  runCli(["daily", "--date", "2026-06-15", "--no-git"], cwd);
+
+  await writeFile(
+    path.join(cwd, "englog.config.json"),
+    `${JSON.stringify(
+      {
+        journalRoot: ".",
+        defaultRepo: ".",
+        analysis: {
+          enabled: true,
+          provider: "openai-compatible",
+          api: "responses",
+          baseUrl: "https://ops-ai-gateway.yc345.tv/v1",
+          model: "gpt-5.5"
+        }
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+
+  const eventDirectory = path.join(cwd, "data", "events", "2026-06-15");
+  const eventFile = path.join(eventDirectory, (await readdir(eventDirectory)).find((file) => file.endsWith(".json")));
+  const beforeDryRun = await readFile(eventFile, "utf8");
+  const previousCwd = process.cwd();
+  let requestCount = 0;
+  const fetchMock = mock.method(globalThis, "fetch", async () => {
+    requestCount += 1;
+    return new Response(
+      JSON.stringify({
+        output_text: JSON.stringify({
+          summary: [`AI 重新分析 ${requestCount}`],
+          valuableChanges: ["dry-run 与写回复用同一分析流程。"],
+          technicalHighlights: ["新增独立 analyze daily 命令。"],
+          decisions: ["重新分析只更新 analysis 字段并重渲染日报。"],
+          risks: ["需要人工复核模型输出。"],
+          tests: ["覆盖 dry-run 不落盘和正式写回。"],
+          aiAssistedParts: ["模型补全事件分析。"],
+          humanReviewNotes: ["人工区继续由渲染逻辑保留。"],
+          tags: ["M4", "Analyze"]
+        })
+      }),
+      {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      }
+    );
+  });
+
+  try {
+    process.chdir(cwd);
+    const dryRun = await runAnalyzeDaily({ date: "2026-06-15", dryRun: true });
+    assert.equal(dryRun.dryRun, true);
+    assert.equal(dryRun.eventCount, 1);
+    assert.deepEqual(dryRun.analyses[0].analysis.summary, ["AI 重新分析 1"]);
+    assert.deepEqual(dryRun.analyses[0].tags, ["analyze", "m4"]);
+    assert.equal(await readFile(eventFile, "utf8"), beforeDryRun);
+
+    const result = await runAnalyzeDaily({ date: "2026-06-15" });
+    assert.equal(result.dryRun, false);
+    assert.equal(result.updatedEventPaths.length, 1);
+
+    const event = JSON.parse(await readFile(eventFile, "utf8"));
+    assert.deepEqual(event.analysis.summary, ["AI 重新分析 2"]);
+    assert.deepEqual(event.tags, ["analyze", "m4"]);
+
+    const journal = await readFile(path.join(cwd, "journals", "daily", "2026-06-15.md"), "utf8");
+    assert.match(journal, /AI 重新分析 2/);
+    assert.match(journal, /标签：analyze, m4/);
   } finally {
     fetchMock.mock.restore();
     process.chdir(previousCwd);

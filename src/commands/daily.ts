@@ -1,5 +1,5 @@
 import type { Command } from "commander";
-import { analyzeEventWithOpenAICompatibleApi } from "../analysis/openai-compatible.js";
+import { analyzeJournalEvent } from "../analysis/analyze-event.js";
 import { loadConfig } from "../config/load-config.js";
 import { listCommits } from "../git/commits.js";
 import { getRepoInfo } from "../git/repo.js";
@@ -58,7 +58,9 @@ export async function runDaily(options: Partial<DailyCommandOptions> = {}): Prom
     commits,
     device: config.device
   });
-  event.analysis = await analyzeEventWithOpenAICompatibleApi(event, config.analysis);
+  const analyzed = await analyzeJournalEvent(event, config.analysis);
+  event.analysis = analyzed.analysis;
+  event.tags = analyzed.tags;
 
   const eventPath = await writeJournalEvent(config.journalRoot, event);
   const events = await readJournalEvents(config.journalRoot, date);

@@ -37,6 +37,11 @@ export interface JournalAnalysis {
   humanReviewNotes: string[];
 }
 
+export interface JournalEventFile {
+  path: string;
+  event: JournalEvent;
+}
+
 export function eventDirectory(root: string, date: Date): string {
   return path.join(root, "data", "events", formatDate(date));
 }
@@ -100,24 +105,38 @@ export async function writeJournalEvent(root: string, event: JournalEvent): Prom
 }
 
 export async function readJournalEvents(root: string, date: Date): Promise<JournalEvent[]> {
+  return (await readJournalEventFiles(root, date)).map((file) => file.event);
+}
+
+export async function readJournalEventFiles(root: string, date: Date): Promise<JournalEventFile[]> {
   const directory = eventDirectory(root, date);
 
   try {
     const entries = await readdir(directory, { withFileTypes: true });
-    const events = await Promise.all(
+    const files = await Promise.all(
       entries
         .filter((entry) => entry.isFile() && entry.name.endsWith(".json"))
         .sort((a, b) => a.name.localeCompare(b.name))
-        .map(async (entry) => JSON.parse(await readFile(path.join(directory, entry.name), "utf8")) as JournalEvent)
+        .map(async (entry) => {
+          const eventPath = path.join(directory, entry.name);
+          return {
+            path: eventPath,
+            event: JSON.parse(await readFile(eventPath, "utf8")) as JournalEvent
+          };
+        })
     );
 
-    return events.filter((event) => event.schemaVersion === 1);
+    return files.filter((file) => file.event.schemaVersion === 1);
   } catch (error) {
     if (isNodeError(error) && error.code === "ENOENT") {
       return [];
     }
     throw error;
   }
+}
+
+export async function overwriteJournalEvent(filePath: string, event: JournalEvent): Promise<void> {
+  await writeFile(filePath, `${JSON.stringify(event, null, 2)}\n`, "utf8");
 }
 
 function inferTests(files: string[]): string[] {
