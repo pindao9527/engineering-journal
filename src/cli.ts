@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+import { realpathSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { Command } from "commander";
 import { registerInitCommand } from "./commands/init.js";
 import { registerDailyCommand } from "./commands/daily.js";
@@ -29,7 +31,17 @@ export function createProgram(): Command {
   return program;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+function isCliEntrypoint(): boolean {
+  const invokedPath = process.argv[1];
+
+  if (!invokedPath) {
+    return false;
+  }
+
+  return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(invokedPath);
+}
+
+if (isCliEntrypoint()) {
   try {
     await createProgram().parseAsync(process.argv);
   } catch (error) {
