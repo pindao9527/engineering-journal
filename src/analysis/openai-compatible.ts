@@ -108,7 +108,10 @@ function requestBody(api: "responses" | "chat-completions", model: string, event
   const instructions = [
     "你是 engineering-journal 的工程日志分析器。",
     "只输出严格 JSON，不要 Markdown，不要代码块。",
-    "所有字段都必须是字符串数组，内容要基于提交、文件和验证事实，避免泛泛总结。"
+    "所有字段都必须是字符串数组，内容要基于提交、文件和验证事实，避免泛泛总结。",
+    "如果输入包含 diff，请基于代码变化判断工程价值、风险、测试信号和关键取舍，不要只复述 commit message。",
+    "区分确定事实和合理推测；diff 缺失、被排除或被截断时，应降低判断置信度。",
+    "不要输出源码片段或 patch 原文，只输出工程归纳。"
   ].join("\n");
   const input = JSON.stringify(toAnalysisPayload(event), null, 2);
 
@@ -165,10 +168,26 @@ function toAnalysisPayload(event: JournalEvent): object {
       filesChanged: commit.filesChanged,
       insertions: commit.insertions,
       deletions: commit.deletions,
-      changedFiles: commit.changedFiles
+      changedFiles: commit.changedFiles,
+      diff: commit.diff
+        ? {
+            included: commit.diff.included,
+            truncated: commit.diff.truncated,
+            omittedReason: commit.diff.omittedReason,
+            files: commit.diff.files.map((file) => ({
+              path: file.path,
+              insertions: file.insertions,
+              deletions: file.deletions,
+              truncated: file.truncated,
+              omittedReason: file.omittedReason,
+              patch: file.patch
+            }))
+          }
+        : undefined
     })),
     changedFiles: event.changedFiles,
     diffStats: event.diffStats,
+    diffCollection: event.diffCollection,
     existingRuleBasedAnalysis: event.analysis,
     existingTags: event.tags,
     expectedJsonShape: {

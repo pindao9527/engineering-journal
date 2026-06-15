@@ -118,6 +118,84 @@ test("daily collects commits from a Git repository", async () => {
   assert.match(journal, /feature\.ts/);
 });
 
+test("daily --include-diff stores bounded patches with exclusions and truncation metadata", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "englog-diff-"));
+  runCommand("git", ["init"], cwd);
+  runCommand("git", ["config", "user.name", "Test Engineer"], cwd);
+  runCommand("git", ["config", "user.email", "test@example.com"], cwd);
+  runCli(["init"], cwd);
+  await writeFile(
+    path.join(cwd, "englog.config.json"),
+    `${JSON.stringify(
+      {
+        journalRoot: ".",
+        defaultRepo: ".",
+        git: {
+          collectDiff: false,
+          maxDiffChars: 260,
+          maxFileDiffChars: 120,
+          exclude: ["package-lock.json", ".env*"]
+        }
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+
+  await writeFile(path.join(cwd, "feature.ts"), "export const feature = true;\nexport const second = true;\n", "utf8");
+  await writeFile(path.join(cwd, "package-lock.json"), "{\"lockfileVersion\": 3}\n", "utf8");
+  runCommand("git", ["add", "feature.ts", "package-lock.json"], cwd);
+  runCommand("git", ["commit", "-m", "Add bounded diff fixture"], cwd, {
+    GIT_AUTHOR_DATE: "2026-06-15T10:00:00+08:00",
+    GIT_COMMITTER_DATE: "2026-06-15T10:00:00+08:00"
+  });
+
+  const output = runCli(["daily", "--date", "2026-06-15", "--include-diff"], cwd);
+
+  assert.match(output, /diff collection: enabled, max 260 chars, excluded 1 file\(s\), truncated: yes/);
+  const eventPath = await firstEventPath(cwd, "2026-06-15");
+  const event = JSON.parse(await readFile(eventPath, "utf8"));
+  assert.equal(event.diffCollection.enabled, true);
+  assert.deepEqual(event.diffCollection.excludedFiles, ["package-lock.json"]);
+  assert.equal(event.diffCollection.truncated, true);
+
+  const commitDiff = event.commits[0].diff;
+  const sourceFile = commitDiff.files.find((file) => file.path === "feature.ts");
+  const lockFile = commitDiff.files.find((file) => file.path === "package-lock.json");
+
+  assert.equal(commitDiff.included, true);
+  assert.equal(sourceFile.truncated, true);
+  assert.match(sourceFile.patch, /diff --git a\/feature\.ts b\/feature\.ts/);
+  assert.equal(sourceFile.patch.length, 120);
+  assert.equal(lockFile.omittedReason, "excluded-by-pattern");
+  assert.equal(lockFile.patch, undefined);
+
+  const journal = await readFile(path.join(cwd, "journals", "daily", "2026-06-15.md"), "utf8");
+  assert.match(journal, /Diff 采集：已启用/);
+});
+
+test("daily does not collect patches unless explicitly enabled", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "englog-no-diff-"));
+  runCommand("git", ["init"], cwd);
+  runCommand("git", ["config", "user.name", "Test Engineer"], cwd);
+  runCommand("git", ["config", "user.email", "test@example.com"], cwd);
+  await writeFile(path.join(cwd, "feature.ts"), "export const feature = true;\n", "utf8");
+  runCommand("git", ["add", "feature.ts"], cwd);
+  runCommand("git", ["commit", "-m", "Add feature without diff"], cwd, {
+    GIT_AUTHOR_DATE: "2026-06-15T10:00:00+08:00",
+    GIT_COMMITTER_DATE: "2026-06-15T10:00:00+08:00"
+  });
+  runCli(["init"], cwd);
+
+  const output = runCli(["daily", "--date", "2026-06-15"], cwd);
+
+  assert.match(output, /diff collection: disabled/);
+  const event = JSON.parse(await readFile(await firstEventPath(cwd, "2026-06-15"), "utf8"));
+  assert.equal(event.diffCollection, undefined);
+  assert.equal(event.commits[0].diff, undefined);
+});
+
 test("daily in a non-Git directory prints a friendly error", async () => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "englog-not-git-"));
   runCli(["init"], cwd);
@@ -200,6 +278,86 @@ test("daily can enrich event analysis through an OpenAI-compatible API", async (
 
     const journal = await readFile(path.join(cwd, "journals", "daily", "2026-06-15.md"), "utf8");
     assert.match(journal, /AI 归纳：生成日报骨架/);
+  } finally {
+    fetchMock.mock.restore();
+    process.chdir(previousCwd);
+  }
+});
+
+test("AI analysis payload includes collected diff when daily --include-diff is used", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "englog-ai-diff-"));
+  runCommand("git", ["init"], cwd);
+  runCommand("git", ["config", "user.name", "Test Engineer"], cwd);
+  runCommand("git", ["config", "user.email", "test@example.com"], cwd);
+  runCli(["init"], cwd);
+  await writeFile(path.join(cwd, "feature.ts"), "export function feature() {\n  return true;\n}\n", "utf8");
+  runCommand("git", ["add", "feature.ts"], cwd);
+  runCommand("git", ["commit", "-m", "Add AI diff feature"], cwd, {
+    GIT_AUTHOR_DATE: "2026-06-15T10:00:00+08:00",
+    GIT_COMMITTER_DATE: "2026-06-15T10:00:00+08:00"
+  });
+  await writeFile(
+    path.join(cwd, "englog.config.json"),
+    `${JSON.stringify(
+      {
+        journalRoot: ".",
+        defaultRepo: ".",
+        git: {
+          collectDiff: false,
+          maxDiffChars: 30000,
+          maxFileDiffChars: 8000,
+          exclude: ["package-lock.json"]
+        },
+        analysis: {
+          enabled: true,
+          provider: "openai-compatible",
+          api: "responses",
+          baseUrl: "https://ops-ai-gateway.yc345.tv/v1",
+          model: "gpt-5.5"
+        }
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+
+  const previousCwd = process.cwd();
+  const requests = [];
+  const fetchMock = mock.method(globalThis, "fetch", async (url, init) => {
+    requests.push({
+      url: String(url),
+      body: JSON.parse(String(init.body))
+    });
+
+    return new Response(
+      JSON.stringify({
+        output_text: JSON.stringify({
+          summary: ["AI saw bounded diff."],
+          valuableChanges: ["Diff shows a new feature function."],
+          technicalHighlights: ["The model can inspect controlled patch context."],
+          decisions: [],
+          risks: [],
+          tests: [],
+          aiAssistedParts: [],
+          humanReviewNotes: [],
+          tags: ["diff"]
+        })
+      }),
+      {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      }
+    );
+  });
+
+  try {
+    process.chdir(cwd);
+    await runDaily({ date: "2026-06-15", includeDiff: true });
+
+    const input = JSON.parse(requests[0].body.input);
+    assert.equal(input.diffCollection.enabled, true);
+    assert.match(input.commits[0].diff.files[0].patch, /diff --git a\/feature\.ts b\/feature\.ts/);
   } finally {
     fetchMock.mock.restore();
     process.chdir(previousCwd);

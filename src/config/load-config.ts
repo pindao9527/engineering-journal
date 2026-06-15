@@ -5,7 +5,15 @@ export interface EnglogConfig {
   journalRoot: string;
   defaultRepo?: string;
   device?: string;
+  git: GitConfig;
   analysis?: AnalysisConfig;
+}
+
+export interface GitConfig {
+  collectDiff: boolean;
+  maxDiffChars: number;
+  maxFileDiffChars: number;
+  exclude: string[];
 }
 
 export interface AnalysisConfig {
@@ -20,6 +28,36 @@ export interface AnalysisConfig {
 
 export const DEFAULT_CONFIG_FILE = "englog.config.json";
 
+export const DEFAULT_GIT_CONFIG: GitConfig = {
+  collectDiff: false,
+  maxDiffChars: 30000,
+  maxFileDiffChars: 8000,
+  exclude: [
+    "node_modules/**",
+    "dist/**",
+    "build/**",
+    "coverage/**",
+    "*.lock",
+    "package-lock.json",
+    "pnpm-lock.yaml",
+    "yarn.lock",
+    ".env*",
+    "*.pem",
+    "*.key",
+    "*.crt",
+    "*.p12",
+    "*.png",
+    "*.jpg",
+    "*.jpeg",
+    "*.gif",
+    "*.webp",
+    "*.pdf",
+    "*.zip",
+    "*.tar",
+    "*.gz"
+  ]
+};
+
 export async function loadConfig(cwd = process.cwd()): Promise<EnglogConfig> {
   const configPath = path.join(cwd, DEFAULT_CONFIG_FILE);
 
@@ -28,7 +66,7 @@ export async function loadConfig(cwd = process.cwd()): Promise<EnglogConfig> {
     return normalizeConfig(JSON.parse(raw) as EnglogConfig, cwd);
   } catch (error) {
     if (isNodeError(error) && error.code === "ENOENT") {
-      return { journalRoot: cwd };
+      return { journalRoot: cwd, git: DEFAULT_GIT_CONFIG };
     }
     throw error;
   }
@@ -39,6 +77,7 @@ export async function writeDefaultConfig(cwd = process.cwd()): Promise<void> {
   const config: EnglogConfig = {
     journalRoot: ".",
     defaultRepo: ".",
+    git: DEFAULT_GIT_CONFIG,
     analysis: {
       enabled: false,
       provider: "openai-compatible",
@@ -65,8 +104,37 @@ function normalizeConfig(config: EnglogConfig, cwd: string): EnglogConfig {
   return {
     ...config,
     journalRoot: path.resolve(cwd, config.journalRoot),
-    defaultRepo: config.defaultRepo ? path.resolve(cwd, config.defaultRepo) : undefined
+    defaultRepo: config.defaultRepo ? path.resolve(cwd, config.defaultRepo) : undefined,
+    git: normalizeGitConfig(config.git)
   };
+}
+
+function normalizeGitConfig(config: Partial<GitConfig> | undefined): GitConfig {
+  const maxDiffChars = positiveInteger(config?.maxDiffChars, DEFAULT_GIT_CONFIG.maxDiffChars, "git.maxDiffChars");
+  const maxFileDiffChars = positiveInteger(
+    config?.maxFileDiffChars,
+    DEFAULT_GIT_CONFIG.maxFileDiffChars,
+    "git.maxFileDiffChars"
+  );
+
+  return {
+    collectDiff: config?.collectDiff ?? DEFAULT_GIT_CONFIG.collectDiff,
+    maxDiffChars,
+    maxFileDiffChars,
+    exclude: Array.isArray(config?.exclude) ? config.exclude.filter((pattern) => typeof pattern === "string") : DEFAULT_GIT_CONFIG.exclude
+  };
+}
+
+function positiveInteger(value: unknown, fallback: number, field: string): number {
+  if (value === undefined) {
+    return fallback;
+  }
+
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) {
+    throw new Error(`${field} must be a positive integer.`);
+  }
+
+  return value;
 }
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {

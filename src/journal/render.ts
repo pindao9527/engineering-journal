@@ -59,6 +59,9 @@ export function renderDailyAutoSection(input: RenderDailyInput): string {
   const tags = unique(input.events.flatMap((event) => event.tags));
   const insertions = input.events.reduce((total, event) => total + event.diffStats.insertions, 0);
   const deletions = input.events.reduce((total, event) => total + event.diffStats.deletions, 0);
+  const diffCollections = input.events
+    .map((event) => event.diffCollection)
+    .filter((collection): collection is NonNullable<JournalEvent["diffCollection"]> => Boolean(collection));
 
   return [
     "## 今日提交",
@@ -105,12 +108,25 @@ export function renderDailyAutoSection(input: RenderDailyInput): string {
     `- 提交数：${commits.length}`,
     `- 变更文件数：${changedFiles.length}`,
     `- 新增/删除：+${insertions} / -${deletions}`,
+    renderDiffCollectionInfo(diffCollections),
     tags.length === 0 ? "- 标签：无" : `- 标签：${tags.join(", ")}`,
     changedFiles.length === 0 ? "- 变更文件：无" : `- 变更文件：${changedFiles.join(", ")}`,
     renderManualWarning(input.existingMarkdown)
   ]
     .filter((line) => line !== undefined)
     .join("\n");
+}
+
+function renderDiffCollectionInfo(collections: NonNullable<JournalEvent["diffCollection"]>[]): string {
+  if (collections.length === 0) {
+    return "- Diff 采集：未启用";
+  }
+
+  const truncated = collections.some((collection) => collection.truncated);
+  const excludedCount = unique(collections.flatMap((collection) => collection.excludedFiles)).length;
+  const maxDiffChars = Math.max(...collections.map((collection) => collection.maxDiffChars));
+
+  return `- Diff 采集：已启用，最大 ${maxDiffChars} 字符，排除 ${excludedCount} 个文件，截断：${truncated ? "是" : "否"}`;
 }
 
 export function renderPeriodSummary(input: RenderPeriodInput): string {

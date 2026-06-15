@@ -22,8 +22,17 @@ export interface JournalEvent {
     insertions: number;
     deletions: number;
   };
+  diffCollection?: DiffCollectionMetadata;
   analysis: JournalAnalysis;
   tags: string[];
+}
+
+export interface DiffCollectionMetadata {
+  enabled: boolean;
+  maxDiffChars: number;
+  maxFileDiffChars: number;
+  excludedFiles: string[];
+  truncated: boolean;
 }
 
 export interface JournalAnalysis {
@@ -52,6 +61,7 @@ export function createJournalEvent(input: {
   commits: CommitSummary[];
   device?: string;
   now?: Date;
+  diffCollection?: DiffCollectionMetadata;
 }): JournalEvent {
   const now = input.now ?? new Date();
   const device = sanitizeIdPart(input.device ?? os.hostname());
@@ -74,6 +84,7 @@ export function createJournalEvent(input: {
       insertions: sum(input.commits.map((commit) => commit.insertions)),
       deletions: sum(input.commits.map((commit) => commit.deletions))
     },
+    diffCollection: input.diffCollection,
     analysis: {
       summary: input.commits.map((commit) => commit.message),
       valuableChanges: [],

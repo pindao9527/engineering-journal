@@ -1,6 +1,7 @@
 import { format } from "date-fns";
 import { simpleGit } from "simple-git";
 import type { TimeRange } from "../time/periods.js";
+import type { CommitDiffSummary } from "./patch.js";
 
 export interface CommitSummary {
   hash: string;
@@ -12,6 +13,7 @@ export interface CommitSummary {
   insertions: number;
   deletions: number;
   changedFiles: string[];
+  diff?: CommitDiffSummary;
 }
 
 export async function listCommits(repoPath: string, range: TimeRange): Promise<CommitSummary[]> {

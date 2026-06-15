@@ -14,6 +14,7 @@ CLI 命令名为 `englog`。
 - `englog` CLI 入口。
 - `englog init` 初始化日志目录、默认模板、配置文件和本地缓存忽略规则。
 - `englog daily` 采集指定日期的 Git 提交，写入 append-only 事件 JSON，并生成日报 Markdown。
+- `englog daily --include-diff` 可在显式授权下采集受控 commit patch，供事件追溯和 AI 分析使用。
 - `englog daily --no-git` 在非 Git 场景生成空事件和日报骨架。
 - `englog daily --sync` 在干净工作区中执行 pull、采集、渲染、commit 和 push。
 - `englog render daily` 基于已有事件重渲染日报自动区，并保留人工区。
@@ -85,6 +86,7 @@ englog init
 englog daily --date 2026-06-15
 englog daily --date 2026-06-15 --repo /path/to/repo
 englog daily --date 2026-06-15 --no-git
+englog daily --date 2026-06-15 --include-diff
 englog daily --date 2026-06-15 --sync
 englog render daily --date 2026-06-15
 englog weekly --week 2026-W25
@@ -105,6 +107,132 @@ englog status --date 2026-06-15
 
 `englog status` 会给出一个 `next action`，用于判断当前应该运行 `englog daily`、`englog daily --sync`、`git push`，还是先处理本地未提交内容。
 
+## 推荐操作流程
+
+### 首次初始化
+
+在准备存放工程日志的目录中初始化：
+
+```bash
+englog init
+```
+
+建议把这个目录作为一个私有 Git 仓库使用，方便多设备同步和长期备份：
+
+```bash
+git init
+git add .
+git commit -m "Initialize engineering journal"
+git remote add origin <your-private-repo-url>
+git push -u origin HEAD
+```
+
+如果日常记录的是另一个代码仓库，可以在 `englog.config.json` 中设置：
+
+```json
+{
+  "journalRoot": ".",
+  "defaultRepo": "/path/to/your/project"
+}
+```
+
+### 每日记录
+
+一天结束时先查看状态：
+
+```bash
+englog status
+```
+
+普通使用建议先运行：
+
+```bash
+englog daily
+```
+
+这会采集当天 Git commit，写入 append-only 事件 JSON，并生成或更新 `journals/daily/{date}.md`。生成后打开当天日报，在人工区补充：
+
+- 为什么做这些改动。
+- 哪些判断是关键取舍。
+- 如何验证结果可信。
+- 明天最值得继续推进什么。
+
+如果只是想补一篇没有 Git commit 的日志：
+
+```bash
+englog daily --no-git
+```
+
+### 多设备同步
+
+日志仓库已经配置 remote/upstream 后，推荐日常使用：
+
+```bash
+englog daily --sync
+```
+
+它会执行 pull、采集、渲染、commit 和 push。执行前需要工作区干净；如果你刚刚手动编辑过日报，先提交或暂存这些改动，再运行同步流程。
+
+### AI 与 diff 增强
+
+AI 分析默认关闭。启用 AI 后，`englog daily` 会把 commit 元信息、文件变化和统计信息发送给配置的 OpenAI-compatible 服务，分析结果写入事件 `analysis` 字段。
+
+如果希望 AI 基于真实代码变化做更具体的复盘，可以显式开启受控 diff 采集：
+
+```bash
+englog daily --include-diff
+```
+
+这只读取已提交 commit 的 patch，不读取未提交工作区内容。开启前建议确认 `git.exclude` 已覆盖 lockfile、构建产物、环境变量文件、证书密钥等敏感路径。
+
+已有事件需要重新分析时，先 dry-run 查看结果：
+
+```bash
+englog analyze daily --date 2026-06-15 --dry-run
+```
+
+确认可以接受后再写回并重渲染日报：
+
+```bash
+englog analyze daily --date 2026-06-15
+```
+
+### 周期复盘
+
+建议每周末生成周报：
+
+```bash
+englog weekly
+```
+
+每月或阶段结束时继续向上汇总：
+
+```bash
+englog monthly
+englog quarterly
+englog half-year
+englog yearly
+```
+
+周期总结会优先基于低一层日志生成。缺少日报或周报时，CLI 会在总结中列出缺失来源，并提示应该先补哪些命令。
+
+### 检索与统计
+
+想回看某个主题时使用搜索：
+
+```bash
+englog search auth middleware
+```
+
+想看一段时间内主要工程主题、测试信号或风险记录时使用统计：
+
+```bash
+englog stats --month 2026-06
+englog stats --tag auth
+```
+
+一个比较稳的日常节奏是：每天 `status -> daily -> 人工补充 -> sync`，每周 `weekly`，每月 `monthly + stats`。这样自动记录负责事实，人工区负责判断，周期总结负责把碎片变成可复盘的脉络。
+
 ## AI 分析配置
 
 AI 分析默认关闭。需要接入 OpenAI 兼容接口时，在 `englog.config.json` 中启用：
@@ -124,6 +252,35 @@ AI 分析默认关闭。需要接入 OpenAI 兼容接口时，在 `englog.config
   }
 }
 ```
+
+## Diff 采集与隐私
+
+代码 diff 采集默认关闭。只有在运行 `englog daily --include-diff`，或在配置中显式设置 `git.collectDiff: true` 时，CLI 才会读取已提交 commit 的 patch；不会读取 unstaged 或 uncommitted 工作区内容。
+
+可以在 `englog.config.json` 中调整采集边界：
+
+```json
+{
+  "git": {
+    "collectDiff": false,
+    "maxDiffChars": 30000,
+    "maxFileDiffChars": 8000,
+    "exclude": [
+      "*.lock",
+      "package-lock.json",
+      "pnpm-lock.yaml",
+      "yarn.lock",
+      "dist/**",
+      "build/**",
+      ".env*",
+      "*.pem",
+      "*.key"
+    ]
+  }
+}
+```
+
+开启后，受限 diff 会写入事件 JSON 的 commit `diff` 字段，事件顶层也会记录 `diffCollection` 元信息，包括最大字符数、被排除文件和是否截断。默认排除 lockfile、构建产物、依赖目录、环境变量文件、证书密钥和常见二进制文件。若 AI 分析也已启用，这些受控 diff 会作为分析输入发送给你配置的 OpenAI-compatible 服务。
 
 `api` 默认使用 `responses`，会请求 `{baseUrl}/responses`；如需兼容旧服务，也可以设置为 `chat-completions`，请求 `{baseUrl}/chat/completions`。`baseUrl` 可以是 OpenAI 兼容服务的 `/v1` 根地址，也可以直接是完整的 `/responses` 或 `/chat/completions` 地址。本地兼容服务也可以使用类似 `http://localhost:11434/v1` 的地址。配置 `apiKeyEnv` 时，CLI 会从对应环境变量读取密钥并发送 Bearer token；不配置或环境变量为空时不会发送鉴权头。
 

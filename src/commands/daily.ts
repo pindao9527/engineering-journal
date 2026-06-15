@@ -2,6 +2,7 @@ import type { Command } from "commander";
 import { analyzeJournalEvent } from "../analysis/analyze-event.js";
 import { loadConfig } from "../config/load-config.js";
 import { listCommits } from "../git/commits.js";
+import { collectDiffMetadata, getCommitPatch } from "../git/patch.js";
 import { getRepoInfo } from "../git/repo.js";
 import { commitJournalChanges, ensureCleanWorktree, pullJournalRepo, pushJournalRepo } from "../git/sync.js";
 import { renderDaily } from "../journal/render.js";
@@ -16,6 +17,7 @@ export interface DailyCommandOptions {
   repo?: string;
   git: boolean;
   sync?: boolean;
+  includeDiff?: boolean;
 }
 
 export function registerDailyCommand(program: Command): void {
@@ -26,11 +28,13 @@ export function registerDailyCommand(program: Command): void {
     .option("--repo <path>", "Git repository path to inspect")
     .option("--no-git", "skip Git collection and render an empty journal")
     .option("--sync", "pull, collect, render, commit, and push when supported")
+    .option("--include-diff", "collect bounded commit patches for AI analysis")
     .action(async (options: DailyCommandOptions) => {
       if (options.sync) {
         const result = await runDailySync(options);
         console.log(`event: ${result.eventPath}`);
         console.log(`journal: ${result.journalPath}`);
+        console.log(formatDiffCollectionStatus(result.diffCollection));
         console.log(`commit: ${result.committed ? "created" : "skipped"}`);
         console.log("push: done");
         return;
@@ -39,12 +43,20 @@ export function registerDailyCommand(program: Command): void {
       const result = await runDaily(options);
       console.log(`event: ${result.eventPath}`);
       console.log(`journal: ${result.journalPath}`);
+      console.log(formatDiffCollectionStatus(result.diffCollection));
     });
 }
 
 export async function runDaily(options: Partial<DailyCommandOptions> = {}): Promise<{
   eventPath: string;
   journalPath: string;
+  diffCollection?: {
+    enabled: boolean;
+    maxDiffChars: number;
+    maxFileDiffChars: number;
+    excludedFiles: string[];
+    truncated: boolean;
+  };
 }> {
   const config = await loadConfig();
   const date = options.date ? parseDate(options.date) : new Date();
@@ -52,11 +64,23 @@ export async function runDaily(options: Partial<DailyCommandOptions> = {}): Prom
   const useGit = options.git !== false;
   const repo = useGit ? await getRepoInfo(repoPath) : undefined;
   const commits = useGit && repo ? await listCommits(repo.path, dailyRange(date)) : [];
+  const collectDiff = useGit && repo && (options.includeDiff === true || config.git.collectDiff);
+
+  if (collectDiff) {
+    await Promise.all(
+      commits.map(async (commit) => {
+        commit.diff = await getCommitPatch(repo.path, commit.hash, config.git);
+      })
+    );
+  }
+
+  const diffCollection = collectDiff ? collectDiffMetadata(commits, config.git) : undefined;
   const event = createJournalEvent({
     date,
     repo,
     commits,
-    device: config.device
+    device: config.device,
+    diffCollection
   });
   const analyzed = await analyzeJournalEvent(event, config.analysis);
   event.analysis = analyzed.analysis;
@@ -78,13 +102,20 @@ export async function runDaily(options: Partial<DailyCommandOptions> = {}): Prom
     })
   );
 
-  return { eventPath, journalPath };
+  return { eventPath, journalPath, diffCollection };
 }
 
 export async function runDailySync(options: Partial<DailyCommandOptions> = {}): Promise<{
   eventPath: string;
   journalPath: string;
   committed: boolean;
+  diffCollection?: {
+    enabled: boolean;
+    maxDiffChars: number;
+    maxFileDiffChars: number;
+    excludedFiles: string[];
+    truncated: boolean;
+  };
 }> {
   const config = await loadConfig();
   const date = options.date ? parseDate(options.date) : new Date();
@@ -108,4 +139,16 @@ export async function runDailySync(options: Partial<DailyCommandOptions> = {}): 
     ...result,
     committed
   };
+}
+
+function formatDiffCollectionStatus(diffCollection: Awaited<ReturnType<typeof runDaily>>["diffCollection"]): string {
+  if (!diffCollection?.enabled) {
+    return "diff collection: disabled";
+  }
+
+  return [
+    `diff collection: enabled, max ${diffCollection.maxDiffChars} chars`,
+    `excluded ${diffCollection.excludedFiles.length} file(s)`,
+    `truncated: ${diffCollection.truncated ? "yes" : "no"}`
+  ].join(", ");
 }
