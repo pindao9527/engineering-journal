@@ -1,3 +1,4 @@
+import { format } from "date-fns";
 import { simpleGit } from "simple-git";
 import type { TimeRange } from "../time/periods.js";
 
@@ -16,8 +17,8 @@ export interface CommitSummary {
 export async function listCommits(repoPath: string, range: TimeRange): Promise<CommitSummary[]> {
   const git = simpleGit(repoPath);
   const log = await git.log({
-    "--since": range.start.toISOString(),
-    "--until": range.end.toISOString()
+    "--since": format(range.start, "yyyy-MM-dd'T'HH:mm:ssXXX"),
+    "--until": format(range.end, "yyyy-MM-dd'T'HH:mm:ssXXX")
   });
 
   return Promise.all(

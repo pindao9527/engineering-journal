@@ -58,7 +58,7 @@ export async function runAnalyzeDaily(options: AnalyzeDailyCommandOptions = {}):
   }
 
   if (!config.analysis?.enabled) {
-    throw new Error("AI analysis is disabled. Enable analysis in englog.config.json before running englog analyze daily.");
+    throw new Error("AI analysis is disabled. Enable analysis in englog.config.json (or run 'englog init' to generate a default config) before running englog analyze daily.");
   }
 
   const analyzedFiles = [];

@@ -12,6 +12,29 @@ export interface JournalGitStatus {
 
 export async function getJournalGitStatus(repoPath: string): Promise<JournalGitStatus> {
   const git = simpleGit(repoPath);
+  try {
+    const isRepo = await git.checkIsRepo();
+    if (!isRepo) {
+      return {
+        branch: "non-git",
+        isClean: true,
+        changedFiles: [],
+        ahead: 0,
+        behind: 0,
+        hasUpstream: false
+      };
+    }
+  } catch {
+    return {
+      branch: "non-git",
+      isClean: true,
+      changedFiles: [],
+      ahead: 0,
+      behind: 0,
+      hasUpstream: false
+    };
+  }
+
   const status = await git.status();
   const branch = status.current || "unknown";
   const upstreamCounts = await getUpstreamCounts(repoPath);

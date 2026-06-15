@@ -45,6 +45,9 @@ export function registerInitCommand(program: Command): void {
     .action(async (options: { force?: boolean }) => {
       await initializeJournal(process.cwd(), Boolean(options.force));
       console.log("englog initialized.");
+      console.log("\nNext steps:");
+      console.log("1. Run 'git init' if this is not yet a Git repository.");
+      console.log("2. Configure your AI settings in 'englog.config.json' and set your API key environment variable (e.g., export OPENAI_API_KEY=...).");
     });
 }
 

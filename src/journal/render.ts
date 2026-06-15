@@ -132,29 +132,53 @@ export function renderPeriodAutoSection(input: RenderPeriodInput): string {
     input.sources.length === 0
       ? "- 暂无可用低层总结。"
       : input.sources.map((source) => `- ${source.key}`).join("\n");
-  const sourceHighlights = input.sources.flatMap((source) => extractListItems(source.markdown)).slice(0, 20);
+
+  const completedList = input.sources
+    .flatMap((source) => extractListItemsFromSections(source.markdown, ["今日提交", "主要变化", "本周完成", "重要工程进展", "阶段完成"]))
+    .slice(0, 20);
+
+  const progressList = input.sources
+    .flatMap((source) => extractListItemsFromSections(source.markdown, ["主要变化", "重要工程进展"]))
+    .slice(0, 10);
+
+  const valuableList = input.sources
+    .flatMap((source) => extractListItemsFromSections(source.markdown, ["有价值的部分", "最有价值的提交", "代表性价值"]))
+    .slice(0, 8);
+
+  const highlightsList = input.sources
+    .flatMap((source) => extractListItemsFromSections(source.markdown, ["技术亮点", "技术亮点 / 创新点"]))
+    .slice(0, 8);
+
+  const decisionsList = input.sources
+    .flatMap((source) => extractListItemsFromSections(source.markdown, ["关键工程判断", "工程判断"]))
+    .slice(0, 8);
+
+  const problemsList = input.sources
+    .flatMap((source) => extractListItemsFromSections(source.markdown, ["问题与风险", "反复出现的问题"]))
+    .slice(0, 8);
+
   const sections = periodSections(input.period);
 
   return [
     sections.completed,
     "",
-    renderList(sourceHighlights, "- 暂无自动归纳。"),
+    renderList(completedList, "- 暂无自动归纳。"),
     "",
     sections.progress,
     "",
-    renderList(sourceHighlights.slice(0, 8), "- 待人工补充。"),
+    renderList(progressList, "- 待人工补充。"),
     "",
     sections.valuable,
     "",
-    renderList(sourceHighlights.slice(0, 6), "- 待人工补充。"),
+    renderList(valuableList, "- 待人工补充。"),
     "",
     "## 技术亮点",
     "",
-    "- 待人工补充。",
+    renderList(highlightsList, "- 待人工补充。"),
     "",
     "## 关键工程判断",
     "",
-    "- 待人工补充。",
+    renderList(decisionsList, "- 待人工补充。"),
     "",
     "## AI 协作复盘",
     "",
@@ -162,7 +186,7 @@ export function renderPeriodAutoSection(input: RenderPeriodInput): string {
     "",
     sections.problems,
     "",
-    "- 待人工补充。",
+    renderList(problemsList, "- 待人工补充。"),
     "",
     sections.next,
     "",
@@ -293,6 +317,28 @@ function extractListItems(markdown: string): string[] {
     .filter((line) => line.startsWith("- ") && !line.includes("待人工补充") && !line.includes("暂无"))
     .map((line) => line.slice(2).trim())
     .filter(Boolean);
+}
+
+function extractListItemsFromSections(markdown: string, sectionTitles: string[]): string[] {
+  const lines = markdown.split(/\r?\n/);
+  const result: string[] = [];
+  let inSection = false;
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("#")) {
+      inSection = sectionTitles.some((title) => trimmed.includes(title));
+    } else if (inSection) {
+      if (trimmed.startsWith("- ") && !trimmed.includes("待人工补充") && !trimmed.includes("暂无")) {
+        const content = trimmed.slice(2).trim();
+        if (content) {
+          result.push(content);
+        }
+      }
+    }
+  }
+
+  return result;
 }
 
 function periodTitle(period: Exclude<JournalPeriod, "daily">): string {

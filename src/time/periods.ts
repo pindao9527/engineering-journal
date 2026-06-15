@@ -177,7 +177,10 @@ function weeklyKeysBetween(start: Date, end: Date): string[] {
   let cursor = startOfISOWeek(start);
 
   while (cursor <= end) {
-    keys.push(currentWeekKey(cursor));
+    const thursday = addDays(cursor, 3);
+    if (thursday >= start && thursday <= end) {
+      keys.push(currentWeekKey(cursor));
+    }
     cursor = addDays(cursor, 7);
   }
 

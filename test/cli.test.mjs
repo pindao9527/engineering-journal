@@ -470,6 +470,79 @@ test("stats summarizes events by month and tag", async () => {
   assert.match(output, /active dates: 2026-06-15/);
 });
 
+test("status works in a non-git directory", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "englog-status-nongit-"));
+  runCli(["init"], cwd);
+  const output = runCli(["status", "--date", "2026-06-15"], cwd);
+
+  assert.match(output, /git branch: non-git/);
+  assert.match(output, /worktree: clean/);
+});
+
+test("weekly summary handles cross-month week uniquely", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "englog-crossmonth-"));
+  runCli(["init"], cwd);
+
+  const weeklyDir = path.join(cwd, "journals", "weekly");
+  await writeFile(path.join(weeklyDir, "2026-W23.md"), "# Weekly Engineering Journal 2026-W23\n<!-- englog:auto:start -->\n- 本周完成了重大跨月功能\n<!-- englog:auto:end -->\n", "utf8");
+
+  runCli(["monthly", "--month", "2026-05"], cwd);
+  runCli(["monthly", "--month", "2026-06"], cwd);
+
+  const mayMonthly = await readFile(path.join(cwd, "journals", "monthly", "2026-05.md"), "utf8");
+  const juneMonthly = await readFile(path.join(cwd, "journals", "monthly", "2026-06.md"), "utf8");
+
+  assert.match(juneMonthly, /2026-W23/);
+  assert.doesNotMatch(mayMonthly, /2026-W23/);
+});
+
+test("weekly summary sections are extracted precisely and do not duplicate", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "englog-extract-"));
+  runCli(["init"], cwd);
+
+  const dailyPath = path.join(cwd, "journals", "daily", "2026-06-15.md");
+  await writeFile(
+    dailyPath,
+    [
+      "# Engineering Journal 2026-06-15",
+      "<!-- englog:auto:start -->",
+      "## 主要变化",
+      "- 核心数据库优化完成了",
+      "## 有价值的部分",
+      "- 减少了90%的慢查询时间",
+      "## 问题与风险",
+      "- 升级过程中存在潜在死锁可能",
+      "<!-- englog:auto:end -->",
+      "<!-- englog:manual:start -->",
+      "## 人工记录",
+      "<!-- englog:manual:end -->"
+    ].join("\n"),
+    "utf8"
+  );
+
+  runCli(["weekly", "--week", "2026-W25"], cwd);
+
+  const weeklyPath = path.join(cwd, "journals", "weekly", "2026-W25.md");
+  const weeklyContent = await readFile(weeklyPath, "utf8");
+
+  assert.match(weeklyContent, /## 本周完成/);
+  
+  const completedSection = weeklyContent.slice(
+    weeklyContent.indexOf("## 本周完成"),
+    weeklyContent.indexOf("## 重要工程进展")
+  );
+  assert.match(completedSection, /核心数据库优化完成了/);
+  assert.doesNotMatch(completedSection, /减少了90%的慢查询时间/);
+
+  const valuableSection = weeklyContent.slice(
+    weeklyContent.indexOf("## 最有价值的提交"),
+    weeklyContent.indexOf("## 技术亮点")
+  );
+  assert.match(valuableSection, /减少了90%的慢查询时间/);
+  assert.doesNotMatch(valuableSection, /核心数据库优化完成了/);
+});
+
+
 function runCli(args, cwd) {
   return runCommand(process.execPath, [cliPath, ...args], cwd);
 }
