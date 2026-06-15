@@ -9,17 +9,26 @@ export interface DiffStats {
 
 export async function getCommitDiffStats(repoPath: string, commitHash: string): Promise<DiffStats> {
   const git = simpleGit(repoPath);
-  const summary = await git.show(["--stat", "--format=", commitHash]);
-  const files = summary
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.includes("|"))
-    .map((line) => line.split("|")[0].trim());
+  const summary = await git.show(["--numstat", "--format=", commitHash]);
+  const files: string[] = [];
+  let insertions = 0;
+  let deletions = 0;
+
+  for (const line of summary.split("\n")) {
+    const [added, deleted, file] = line.split("\t");
+    if (!added || !deleted || !file) {
+      continue;
+    }
+
+    files.push(file);
+    insertions += added === "-" ? 0 : Number.parseInt(added, 10);
+    deletions += deleted === "-" ? 0 : Number.parseInt(deleted, 10);
+  }
 
   return {
     filesChanged: files.length,
-    insertions: 0,
-    deletions: 0,
+    insertions,
+    deletions,
     files
   };
 }

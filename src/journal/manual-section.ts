@@ -24,6 +24,13 @@ export function replaceAutoSection(markdown: string, nextAutoSection: string): s
   ].join("");
 }
 
+export function hasManualMarkers(markdown: string): boolean {
+  const startIndex = markdown.indexOf(MANUAL_START);
+  const endIndex = markdown.indexOf(MANUAL_END);
+
+  return startIndex !== -1 && endIndex !== -1 && endIndex > startIndex;
+}
+
 function extractMarkedSection(markdown: string, startMarker: string, endMarker: string): string | undefined {
   const startIndex = markdown.indexOf(startMarker);
   const endIndex = markdown.indexOf(endMarker);

@@ -8,15 +8,18 @@ CLI 命令名为 `englog`。
 
 ## 当前状态
 
-当前项目已经完成基础脚手架：
+当前项目已经完成最小日报闭环的主体能力：
 
 - TypeScript + Node.js 工程配置。
 - `englog` CLI 入口。
-- `init`、`daily`、`render daily` 命令骨架。
+- `englog init` 初始化日志目录、默认模板、配置文件和本地缓存忽略规则。
+- `englog daily` 采集指定日期的 Git 提交，写入 append-only 事件 JSON，并生成日报 Markdown。
+- `englog daily --no-git` 在非 Git 场景生成空事件和日报骨架。
+- `englog render daily` 基于已有事件重渲染日报自动区，并保留人工区。
 - `config`、`git`、`journal`、`storage`、`time` 等核心模块边界。
 - 构建、测试、类型检查和开发运行脚本。
 
-当前命令仍是占位实现，后续会继续补齐日志初始化、Git 采集、事件 JSON 写入和 Markdown 渲染能力。
+`englog daily --sync`、周期总结、AI 分析、搜索与可视化仍在后续里程碑中。
 
 ## 环境要求
 
@@ -67,13 +70,24 @@ npm run lint
 englog --help
 ```
 
-当前可用命令骨架：
+当前可用命令：
 
 ```bash
 englog init
-englog daily
-englog render daily
+englog daily --date 2026-06-15
+englog daily --date 2026-06-15 --repo /path/to/repo
+englog daily --date 2026-06-15 --no-git
+englog render daily --date 2026-06-15
 ```
+
+默认输出路径：
+
+```text
+data/events/{date}/{eventId}.json
+journals/daily/{date}.md
+```
+
+日报由 `templates/daily.md` 提供初始结构。再次执行 `daily` 或 `render daily` 时，CLI 只替换 `<!-- englog:auto:start -->` 与 `<!-- englog:auto:end -->` 之间的自动区，保留 `<!-- englog:manual:start -->` 与 `<!-- englog:manual:end -->` 之间的人工记录。
 
 本地开发时，可以直接运行构建产物：
 

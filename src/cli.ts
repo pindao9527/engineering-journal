@@ -20,5 +20,11 @@ export function createProgram(): Command {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  createProgram().parse(process.argv);
+  try {
+    await createProgram().parseAsync(process.argv);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`englog: ${message}`);
+    process.exitCode = 1;
+  }
 }
