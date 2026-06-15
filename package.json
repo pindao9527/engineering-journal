@@ -1,0 +1,42 @@
+{
+  "name": "engineering-journal",
+  "version": "0.1.0",
+  "description": "Personal engineering journal CLI that turns Git activity into durable engineering notes.",
+  "type": "module",
+  "bin": {
+    "englog": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "docs"
+  ],
+  "scripts": {
+    "dev": "tsx src/cli.ts",
+    "build": "tsc",
+    "postbuild": "chmod +x dist/cli.js",
+    "test": "npm run build && node --test \"test/*.test.mjs\"",
+    "lint": "tsc --noEmit"
+  },
+  "keywords": [
+    "cli",
+    "git",
+    "journal",
+    "engineering-log"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "commander": "^12.1.0",
+    "date-fns": "^3.6.0",
+    "gray-matter": "^4.0.3",
+    "simple-git": "^3.27.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.15",
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.4"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
