@@ -14,6 +14,7 @@ test("creates the englog CLI program", () => {
   assert.equal(program.name(), "englog");
   assert.match(program.helpInformation(), /daily/);
   assert.match(program.helpInformation(), /render/);
+  assert.match(program.helpInformation(), /status/);
 });
 
 test("initializes journal structure without overwriting templates", async () => {
@@ -120,6 +121,83 @@ test("daily in a non-Git directory prints a friendly error", async () => {
   assert.equal(result.status, 1);
   assert.match(result.stderr, /englog: Cannot inspect Git repository/);
   assert.doesNotMatch(result.stderr, /at async|Node\.js/);
+});
+
+test("status shows journal and Git sync state", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "englog-status-"));
+  runCommand("git", ["init"], cwd);
+  runCommand("git", ["config", "user.name", "Test Engineer"], cwd);
+  runCommand("git", ["config", "user.email", "test@example.com"], cwd);
+  runCli(["init"], cwd);
+  runCli(["daily", "--date", "2026-06-15", "--no-git"], cwd);
+
+  const output = runCli(["status", "--date", "2026-06-15"], cwd);
+
+  assert.match(output, /date: 2026-06-15/);
+  assert.match(output, /events: 1/);
+  assert.match(output, /daily journal: yes/);
+  assert.match(output, /manual markers: ok/);
+  assert.match(output, /worktree: dirty/);
+  assert.match(output, /unpushed commits: unknown \(no upstream\)/);
+  assert.match(output, /next action: review and commit or stash local changes/);
+});
+
+test("daily --sync commits and pushes generated journal files", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "englog-sync-work-"));
+  const remote = await mkdtemp(path.join(os.tmpdir(), "englog-sync-remote-"));
+
+  runCommand("git", ["init", "--bare"], remote);
+  runCommand("git", ["init"], cwd);
+  runCommand("git", ["config", "user.name", "Test Engineer"], cwd);
+  runCommand("git", ["config", "user.email", "test@example.com"], cwd);
+  runCli(["init"], cwd);
+  runCommand("git", ["add", "."], cwd);
+  runCommand("git", ["commit", "-m", "Initialize journal"], cwd, {
+    GIT_AUTHOR_DATE: "2026-06-14T10:00:00+08:00",
+    GIT_COMMITTER_DATE: "2026-06-14T10:00:00+08:00"
+  });
+  runCommand("git", ["remote", "add", "origin", remote], cwd);
+  runCommand("git", ["push", "-u", "origin", "HEAD"], cwd);
+
+  await writeFile(path.join(cwd, "feature.ts"), "export const synced = true;\n", "utf8");
+  runCommand("git", ["add", "feature.ts"], cwd);
+  runCommand("git", ["commit", "-m", "Add synced feature"], cwd, {
+    GIT_AUTHOR_DATE: "2026-06-15T10:00:00+08:00",
+    GIT_COMMITTER_DATE: "2026-06-15T10:00:00+08:00"
+  });
+
+  const output = runCli(["daily", "--date", "2026-06-15", "--sync"], cwd);
+
+  assert.match(output, /commit: created/);
+  assert.match(output, /push: done/);
+  assert.equal(runCommand("git", ["status", "--porcelain"], cwd), "");
+  assert.equal(runCommand("git", ["rev-list", "--count", "@{u}..HEAD"], cwd).trim(), "0");
+
+  const journal = await readFile(path.join(cwd, "journals", "daily", "2026-06-15.md"), "utf8");
+  assert.match(journal, /Add synced feature/);
+  assert.match(journal, /feature\.ts/);
+});
+
+test("daily --sync refuses to mix with uncommitted worktree changes", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "englog-sync-dirty-"));
+  runCommand("git", ["init"], cwd);
+  runCommand("git", ["config", "user.name", "Test Engineer"], cwd);
+  runCommand("git", ["config", "user.email", "test@example.com"], cwd);
+  runCli(["init"], cwd);
+  runCommand("git", ["add", "."], cwd);
+  runCommand("git", ["commit", "-m", "Initialize journal"], cwd);
+
+  await writeFile(path.join(cwd, "notes.md"), "uncommitted note\n", "utf8");
+
+  const result = spawnSync(process.execPath, [cliPath, "daily", "--date", "2026-06-15", "--sync"], {
+    cwd,
+    encoding: "utf8"
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Cannot sync because the journal repository has uncommitted changes/);
+  assert.match(result.stderr, /notes\.md/);
+  assert.match(result.stderr, /Commit, stash, or discard those changes/);
 });
 
 function runCli(args, cwd) {

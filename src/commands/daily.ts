@@ -2,6 +2,7 @@ import type { Command } from "commander";
 import { loadConfig } from "../config/load-config.js";
 import { listCommits } from "../git/commits.js";
 import { getRepoInfo } from "../git/repo.js";
+import { commitJournalChanges, ensureCleanWorktree, pullJournalRepo, pushJournalRepo } from "../git/sync.js";
 import { renderDaily } from "../journal/render.js";
 import { createJournalEvent, readJournalEvents, writeJournalEvent } from "../storage/events.js";
 import { readJournal, writeJournal } from "../storage/journals.js";
@@ -26,7 +27,12 @@ export function registerDailyCommand(program: Command): void {
     .option("--sync", "pull, collect, render, commit, and push when supported")
     .action(async (options: DailyCommandOptions) => {
       if (options.sync) {
-        throw new Error("englog daily --sync is planned for M2.");
+        const result = await runDailySync(options);
+        console.log(`event: ${result.eventPath}`);
+        console.log(`journal: ${result.journalPath}`);
+        console.log(`commit: ${result.committed ? "created" : "skipped"}`);
+        console.log("push: done");
+        return;
       }
 
       const result = await runDaily(options);
@@ -69,4 +75,33 @@ export async function runDaily(options: Partial<DailyCommandOptions> = {}): Prom
   );
 
   return { eventPath, journalPath };
+}
+
+export async function runDailySync(options: Partial<DailyCommandOptions> = {}): Promise<{
+  eventPath: string;
+  journalPath: string;
+  committed: boolean;
+}> {
+  const config = await loadConfig();
+  const date = options.date ? parseDate(options.date) : new Date();
+
+  await ensureCleanWorktree(config.journalRoot);
+  await pullJournalRepo(config.journalRoot);
+
+  const result = await runDaily({
+    ...options,
+    date: formatDate(date)
+  });
+  const committed = await commitJournalChanges({
+    repoPath: config.journalRoot,
+    files: [result.eventPath, result.journalPath],
+    message: `chore(journal): update ${formatDate(date)} daily journal`
+  });
+
+  await pushJournalRepo(config.journalRoot);
+
+  return {
+    ...result,
+    committed
+  };
 }

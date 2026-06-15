@@ -15,11 +15,13 @@ CLI 命令名为 `englog`。
 - `englog init` 初始化日志目录、默认模板、配置文件和本地缓存忽略规则。
 - `englog daily` 采集指定日期的 Git 提交，写入 append-only 事件 JSON，并生成日报 Markdown。
 - `englog daily --no-git` 在非 Git 场景生成空事件和日报骨架。
+- `englog daily --sync` 在干净工作区中执行 pull、采集、渲染、commit 和 push。
 - `englog render daily` 基于已有事件重渲染日报自动区，并保留人工区。
+- `englog status` 查看今天事件、日报、人工区标记和 Git 同步状态。
 - `config`、`git`、`journal`、`storage`、`time` 等核心模块边界。
 - 构建、测试、类型检查和开发运行脚本。
 
-`englog daily --sync`、周期总结、AI 分析、搜索与可视化仍在后续里程碑中。
+周期总结、AI 分析、搜索与可视化仍在后续里程碑中。
 
 ## 环境要求
 
@@ -77,8 +79,14 @@ englog init
 englog daily --date 2026-06-15
 englog daily --date 2026-06-15 --repo /path/to/repo
 englog daily --date 2026-06-15 --no-git
+englog daily --date 2026-06-15 --sync
 englog render daily --date 2026-06-15
+englog status --date 2026-06-15
 ```
+
+`englog daily --sync` 适合在日志仓库已经配置好 Git remote/upstream 后使用。它要求工作区干净；如果存在未提交改动，会先停止并提示你 commit、stash 或清理后再同步，避免把人工修改和自动日报混在同一个提交里。
+
+`englog status` 会给出一个 `next action`，用于判断当前应该运行 `englog daily`、`englog daily --sync`、`git push`，还是先处理本地未提交内容。
 
 默认输出路径：
 
