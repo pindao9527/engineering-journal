@@ -22,10 +22,12 @@ CLI 命令名为 `englog`。
 - `englog render weekly/monthly/quarterly/half-year/yearly` 重渲染周期总结自动区，并保留人工区。
 - 可选 OpenAI-compatible API 分析接口，将模型返回的结构化结果写入事件 `analysis` 字段。
 - `englog analyze daily` 可对指定日期已有事件重新运行 AI 分析，支持 `--dry-run` 预览且不落盘。
+- `englog search` 可直接检索事件 JSON 与各周期 Markdown，定位日期、文件和标签。
+- `englog stats` 可按月份和标签聚合事件、提交、文件、测试、风险、项目和标签分布。
 - `config`、`git`、`journal`、`storage`、`time` 等核心模块边界。
 - 构建、测试、类型检查和开发运行脚本。
 
-搜索与可视化仍在后续里程碑中。
+Dashboard 可视化仍在后续里程碑中。
 
 ## 环境要求
 
@@ -93,6 +95,9 @@ englog yearly --year 2026
 englog render weekly --week 2026-W25
 englog analyze daily --date 2026-06-15 --dry-run
 englog analyze daily --date 2026-06-15
+englog search auth middleware
+englog stats --month 2026-06
+englog stats --tag auth
 englog status --date 2026-06-15
 ```
 

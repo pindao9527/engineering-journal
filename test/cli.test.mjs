@@ -18,6 +18,8 @@ test("creates the englog CLI program", () => {
   assert.match(program.helpInformation(), /weekly/);
   assert.match(program.helpInformation(), /render/);
   assert.match(program.helpInformation(), /analyze/);
+  assert.match(program.helpInformation(), /search/);
+  assert.match(program.helpInformation(), /stats/);
   assert.match(program.helpInformation(), /status/);
 });
 
@@ -398,6 +400,76 @@ test("monthly summary is generated from weekly summaries", async () => {
   assert.match(monthly, /run englog weekly for the missing weeks first/);
 });
 
+test("search finds event content with date, file, and tags", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "englog-search-"));
+  runCli(["init"], cwd);
+  runCli(["daily", "--date", "2026-06-15", "--no-git"], cwd);
+
+  const eventPath = await firstEventPath(cwd, "2026-06-15");
+  const event = JSON.parse(await readFile(eventPath, "utf8"));
+  event.changedFiles = ["src/auth/middleware.ts"];
+  event.diffStats.filesChanged = 1;
+  event.analysis.summary = ["Added auth middleware request checks."];
+  event.analysis.valuableChanges = ["Auth middleware now records a reusable access-control decision."];
+  event.tags = ["auth", "middleware"];
+  await writeFile(eventPath, `${JSON.stringify(event, null, 2)}\n`, "utf8");
+
+  const output = runCli(["search", "auth", "middleware"], cwd);
+
+  assert.match(output, /results: 1/);
+  assert.match(output, /2026-06-15 \[event\]/);
+  assert.match(output, /data\/events\/2026-06-15\/.+\.json/);
+  assert.match(output, /tags: auth, middleware/);
+  assert.match(output, /matched: auth, middleware/);
+});
+
+test("stats summarizes events by month and tag", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "englog-stats-"));
+  runCli(["init"], cwd);
+  runCli(["daily", "--date", "2026-06-15", "--no-git"], cwd);
+  runCli(["daily", "--date", "2026-07-01", "--no-git"], cwd);
+
+  await updateEvent(cwd, "2026-06-15", (event) => {
+    event.repo = "service-api";
+    event.changedFiles = ["src/auth/middleware.ts", "test/auth.test.ts"];
+    event.diffStats = { filesChanged: 2, insertions: 12, deletions: 3 };
+    event.commits = [
+      {
+        hash: "abc123",
+        message: "Add auth middleware",
+        author: "Test Engineer",
+        date: "2026-06-15T10:00:00+08:00",
+        filesChanged: 2,
+        insertions: 12,
+        deletions: 3,
+        changedFiles: event.changedFiles
+      }
+    ];
+    event.analysis.tests = ["检测到测试相关文件变化：test/auth.test.ts"];
+    event.analysis.risks = ["Middleware ordering needs rollout review."];
+    event.tags = ["auth"];
+  });
+
+  await updateEvent(cwd, "2026-07-01", (event) => {
+    event.repo = "service-api";
+    event.tags = ["billing"];
+  });
+
+  const output = runCli(["stats", "--month", "2026-06", "--tag", "auth"], cwd);
+
+  assert.match(output, /scope: month=2026-06 tag=auth/);
+  assert.match(output, /events: 1/);
+  assert.match(output, /commits: 1/);
+  assert.match(output, /changed files: 2/);
+  assert.match(output, /insertions: 12/);
+  assert.match(output, /deletions: 3/);
+  assert.match(output, /test signals: 1/);
+  assert.match(output, /risk notes: 1/);
+  assert.match(output, /top tags: auth\(1\)/);
+  assert.match(output, /top projects: service-api\(1\)/);
+  assert.match(output, /active dates: 2026-06-15/);
+});
+
 function runCli(args, cwd) {
   return runCommand(process.execPath, [cliPath, ...args], cwd);
 }
@@ -418,4 +490,17 @@ function runCommand(command, args, cwd, env = {}) {
 
 async function assertFileExists(filePath) {
   await access(filePath);
+}
+
+async function firstEventPath(cwd, date) {
+  const eventDirectory = path.join(cwd, "data", "events", date);
+  const eventFile = (await readdir(eventDirectory)).find((file) => file.endsWith(".json"));
+  return path.join(eventDirectory, eventFile);
+}
+
+async function updateEvent(cwd, date, mutate) {
+  const eventPath = await firstEventPath(cwd, date);
+  const event = JSON.parse(await readFile(eventPath, "utf8"));
+  mutate(event);
+  await writeFile(eventPath, `${JSON.stringify(event, null, 2)}\n`, "utf8");
 }

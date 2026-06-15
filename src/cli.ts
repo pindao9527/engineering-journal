@@ -6,6 +6,8 @@ import { registerRenderCommand } from "./commands/render.js";
 import { registerStatusCommand } from "./commands/status.js";
 import { registerPeriodicCommands } from "./commands/periodic.js";
 import { registerAnalyzeCommand } from "./commands/analyze.js";
+import { registerSearchCommand } from "./commands/search.js";
+import { registerStatsCommand } from "./commands/stats.js";
 
 export function createProgram(): Command {
   const program = new Command();
@@ -20,6 +22,8 @@ export function createProgram(): Command {
   registerPeriodicCommands(program);
   registerRenderCommand(program);
   registerAnalyzeCommand(program);
+  registerSearchCommand(program);
+  registerStatsCommand(program);
   registerStatusCommand(program);
 
   return program;

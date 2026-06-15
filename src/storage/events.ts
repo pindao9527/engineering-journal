@@ -108,6 +108,33 @@ export async function readJournalEvents(root: string, date: Date): Promise<Journ
   return (await readJournalEventFiles(root, date)).map((file) => file.event);
 }
 
+export async function readAllJournalEventFiles(root: string): Promise<JournalEventFile[]> {
+  const rootDirectory = path.join(root, "data", "events");
+
+  try {
+    const dateDirectories = await readdir(rootDirectory, { withFileTypes: true });
+    const eventFiles = await Promise.all(
+      dateDirectories
+        .filter((entry) => entry.isDirectory())
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(async (entry) => {
+          const date = new Date(`${entry.name}T00:00:00`);
+          if (Number.isNaN(date.getTime())) {
+            return [];
+          }
+          return readJournalEventFiles(root, date);
+        })
+    );
+
+    return eventFiles.flat();
+  } catch (error) {
+    if (isNodeError(error) && error.code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+}
+
 export async function readJournalEventFiles(root: string, date: Date): Promise<JournalEventFile[]> {
   const directory = eventDirectory(root, date);
 
