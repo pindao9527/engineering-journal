@@ -4,6 +4,7 @@ import { registerInitCommand } from "./commands/init.js";
 import { registerDailyCommand } from "./commands/daily.js";
 import { registerRenderCommand } from "./commands/render.js";
 import { registerStatusCommand } from "./commands/status.js";
+import { registerPeriodicCommands } from "./commands/periodic.js";
 
 export function createProgram(): Command {
   const program = new Command();
@@ -15,6 +16,7 @@ export function createProgram(): Command {
 
   registerInitCommand(program);
   registerDailyCommand(program);
+  registerPeriodicCommands(program);
   registerRenderCommand(program);
   registerStatusCommand(program);
 

@@ -3,8 +3,9 @@ import { access, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises"
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import test from "node:test";
+import test, { mock } from "node:test";
 import { createProgram } from "../dist/cli.js";
+import { runDaily } from "../dist/commands/daily.js";
 
 const cliPath = path.resolve("dist", "cli.js");
 
@@ -13,6 +14,7 @@ test("creates the englog CLI program", () => {
 
   assert.equal(program.name(), "englog");
   assert.match(program.helpInformation(), /daily/);
+  assert.match(program.helpInformation(), /weekly/);
   assert.match(program.helpInformation(), /render/);
   assert.match(program.helpInformation(), /status/);
 });
@@ -23,13 +25,16 @@ test("initializes journal structure without overwriting templates", async () => 
 
   await assertFileExists(path.join(cwd, "englog.config.json"));
   await assertFileExists(path.join(cwd, "templates", "daily.md"));
+  await assertFileExists(path.join(cwd, "templates", "weekly.md"));
   await assertFileExists(path.join(cwd, "journals", "daily"));
+  await assertFileExists(path.join(cwd, "journals", "weekly"));
 
   const dailyTemplate = path.join(cwd, "templates", "daily.md");
   await writeFile(dailyTemplate, "custom template\n", "utf8");
   runCli(["init"], cwd);
 
   assert.equal(await readFile(dailyTemplate, "utf8"), "custom template\n");
+  assert.match(await readFile(path.join(cwd, "templates", "weekly.md"), "utf8"), /englog:auto:start/);
   assert.match(await readFile(path.join(cwd, ".gitignore"), "utf8"), /\.cache\//);
 });
 
@@ -123,6 +128,78 @@ test("daily in a non-Git directory prints a friendly error", async () => {
   assert.doesNotMatch(result.stderr, /at async|Node\.js/);
 });
 
+test("daily can enrich event analysis through an OpenAI-compatible API", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "englog-ai-"));
+  runCli(["init"], cwd);
+  const previousCwd = process.cwd();
+  const requests = [];
+  const fetchMock = mock.method(globalThis, "fetch", async (url, init) => {
+    requests.push({
+      url: String(url),
+      body: JSON.parse(String(init.body))
+    });
+
+    return new Response(
+      JSON.stringify({
+        output_text: JSON.stringify(analysis)
+      }),
+      {
+        status: 200,
+        headers: { "content-type": "application/json" }
+      }
+    );
+  });
+  const analysis = {
+    summary: ["AI 归纳：生成日报骨架。"],
+    valuableChanges: ["将提交事实转成可复盘记录。"],
+    technicalHighlights: ["使用 OpenAI 兼容接口填充 analysis 字段。"],
+    decisions: ["分析结果写入事件 JSON，Markdown 仍由本地渲染。"],
+    risks: ["需要人工复核模型输出。"],
+    tests: ["通过本地兼容接口集成测试验证。"],
+    aiAssistedParts: ["模型生成自动分析字段。"],
+    humanReviewNotes: ["人工保留 manual 区域。"]
+  };
+
+  try {
+    await writeFile(
+      path.join(cwd, "englog.config.json"),
+      `${JSON.stringify(
+        {
+          journalRoot: ".",
+          defaultRepo: ".",
+          analysis: {
+            enabled: true,
+            provider: "openai-compatible",
+            api: "responses",
+            baseUrl: "https://ops-ai-gateway.yc345.tv/v1",
+            model: "gpt-5.5"
+          }
+        },
+        null,
+        2
+      )}\n`,
+      "utf8"
+    );
+
+    process.chdir(cwd);
+    await runDaily({ date: "2026-06-15", git: false });
+
+    const eventDirectory = path.join(cwd, "data", "events", "2026-06-15");
+    const eventFiles = (await readdir(eventDirectory)).filter((file) => file.endsWith(".json"));
+    const event = JSON.parse(await readFile(path.join(eventDirectory, eventFiles[0]), "utf8"));
+    assert.deepEqual(event.analysis.summary, ["AI 归纳：生成日报骨架。"]);
+    assert.deepEqual(requests[0].body.model, "gpt-5.5");
+    assert.equal(requests[0].url, "https://ops-ai-gateway.yc345.tv/v1/responses");
+    assert.equal(typeof requests[0].body.input, "string");
+
+    const journal = await readFile(path.join(cwd, "journals", "daily", "2026-06-15.md"), "utf8");
+    assert.match(journal, /AI 归纳：生成日报骨架/);
+  } finally {
+    fetchMock.mock.restore();
+    process.chdir(previousCwd);
+  }
+});
+
 test("status shows journal and Git sync state", async () => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "englog-status-"));
   runCommand("git", ["init"], cwd);
@@ -198,6 +275,44 @@ test("daily --sync refuses to mix with uncommitted worktree changes", async () =
   assert.match(result.stderr, /Cannot sync because the journal repository has uncommitted changes/);
   assert.match(result.stderr, /notes\.md/);
   assert.match(result.stderr, /Commit, stash, or discard those changes/);
+});
+
+test("weekly summary uses daily journals, reports missing days, and preserves manual text", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "englog-weekly-"));
+  runCli(["init"], cwd);
+  runCli(["daily", "--date", "2026-06-15", "--no-git"], cwd);
+
+  const output = runCli(["weekly", "--week", "2026-W25"], cwd);
+  assert.match(output, /journals\/weekly\/2026-W25\.md/);
+
+  const weeklyPath = path.join(cwd, "journals", "weekly", "2026-W25.md");
+  const firstWeekly = await readFile(weeklyPath, "utf8");
+  assert.match(firstWeekly, /# Weekly Engineering Journal 2026-W25/);
+  assert.match(firstWeekly, /## 本周完成/);
+  assert.match(firstWeekly, /2026-06-15/);
+  assert.match(firstWeekly, /缺失来源：2026-06-16, 2026-06-17, 2026-06-18, 2026-06-19, 2026-06-20, 2026-06-21/);
+  assert.match(firstWeekly, /run englog daily for the missing dates first/);
+
+  const editedWeekly = firstWeekly.replace("## 人工记录\n", "## 人工记录\n\n保留本周复盘。\n");
+  await writeFile(weeklyPath, editedWeekly, "utf8");
+  runCli(["render", "weekly", "--week", "2026-W25"], cwd);
+
+  const renderedAgain = await readFile(weeklyPath, "utf8");
+  assert.match(renderedAgain, /保留本周复盘/);
+});
+
+test("monthly summary is generated from weekly summaries", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "englog-monthly-"));
+  runCli(["init"], cwd);
+  runCli(["daily", "--date", "2026-06-15", "--no-git"], cwd);
+  runCli(["weekly", "--week", "2026-W25"], cwd);
+  runCli(["monthly", "--month", "2026-06"], cwd);
+
+  const monthly = await readFile(path.join(cwd, "journals", "monthly", "2026-06.md"), "utf8");
+  assert.match(monthly, /# Monthly Engineering Journal 2026-06/);
+  assert.match(monthly, /## 阶段完成/);
+  assert.match(monthly, /2026-W25/);
+  assert.match(monthly, /run englog weekly for the missing weeks first/);
 });
 
 function runCli(args, cwd) {

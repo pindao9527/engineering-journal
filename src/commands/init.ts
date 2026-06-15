@@ -28,11 +28,11 @@ const DEFAULT_TEMPLATES: Record<string, string> = {
     "<!-- englog:manual:end -->",
     ""
   ].join("\n"),
-  "weekly.md": "# Weekly Engineering Journal {{period}}\n\n",
-  "monthly.md": "# Monthly Engineering Journal {{period}}\n\n",
-  "quarterly.md": "# Quarterly Engineering Journal {{period}}\n\n",
-  "half-year.md": "# Half-Year Engineering Journal {{period}}\n\n",
-  "yearly.md": "# Yearly Engineering Journal {{period}}\n\n"
+  "weekly.md": periodTemplate("Weekly Engineering Journal"),
+  "monthly.md": periodTemplate("Monthly Engineering Journal"),
+  "quarterly.md": periodTemplate("Quarterly Engineering Journal"),
+  "half-year.md": periodTemplate("Half-Year Engineering Journal"),
+  "yearly.md": periodTemplate("Yearly Engineering Journal")
 };
 
 const CACHE_GITIGNORE_RULES = [".cache/", "*.db", "*.db-shm", "*.db-wal"];
@@ -95,4 +95,19 @@ async function ensureGitignoreRules(cwd: string): Promise<void> {
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error;
+}
+
+function periodTemplate(title: string): string {
+  return [
+    `# ${title} {{period}}`,
+    "",
+    "<!-- englog:auto:start -->",
+    "<!-- englog:auto:end -->",
+    "",
+    "<!-- englog:manual:start -->",
+    "## 人工记录",
+    "",
+    "<!-- englog:manual:end -->",
+    ""
+  ].join("\n");
 }

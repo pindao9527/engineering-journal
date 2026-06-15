@@ -5,6 +5,17 @@ export interface EnglogConfig {
   journalRoot: string;
   defaultRepo?: string;
   device?: string;
+  analysis?: AnalysisConfig;
+}
+
+export interface AnalysisConfig {
+  provider?: "openai-compatible";
+  enabled?: boolean;
+  api?: "responses" | "chat-completions";
+  baseUrl?: string;
+  model?: string;
+  apiKeyEnv?: string;
+  temperature?: number;
 }
 
 export const DEFAULT_CONFIG_FILE = "englog.config.json";
@@ -27,7 +38,15 @@ export async function writeDefaultConfig(cwd = process.cwd()): Promise<void> {
   const configPath = path.join(cwd, DEFAULT_CONFIG_FILE);
   const config: EnglogConfig = {
     journalRoot: ".",
-    defaultRepo: "."
+    defaultRepo: ".",
+    analysis: {
+      enabled: false,
+      provider: "openai-compatible",
+      api: "responses",
+      baseUrl: "https://api.openai.com/v1",
+      model: "gpt-5.5",
+      apiKeyEnv: "OPENAI_API_KEY"
+    }
   };
 
   try {
