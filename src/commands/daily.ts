@@ -2,8 +2,11 @@ import type { Command } from "commander";
 import { analyzeJournalEvent } from "../analysis/analyze-event.js";
 import { loadConfig } from "../config/load-config.js";
 import { listCommits } from "../git/commits.js";
+import type { CommitSummary } from "../git/commits.js";
+import { discoverGitRepositories } from "../git/discover.js";
 import { collectDiffMetadata, getCommitPatch } from "../git/patch.js";
 import { getRepoInfo } from "../git/repo.js";
+import type { RepoInfo } from "../git/repo.js";
 import { commitJournalChanges, ensureCleanWorktree, pullJournalRepo, pushJournalRepo } from "../git/sync.js";
 import { renderDaily } from "../journal/render.js";
 import { createJournalEvent, readJournalEvents, writeJournalEvent } from "../storage/events.js";
@@ -60,25 +63,31 @@ export async function runDaily(options: Partial<DailyCommandOptions> = {}): Prom
 }> {
   const config = await loadConfig();
   const date = options.date ? parseDate(options.date) : new Date();
-  const repoPath = options.repo ?? config.defaultRepo ?? process.cwd();
   const useGit = options.git !== false;
-  const repo = useGit ? await getRepoInfo(repoPath) : undefined;
-  const commits = useGit && repo ? await listCommits(repo.path, dailyRange(date)) : [];
-  const collectDiff = useGit && repo && (options.includeDiff === true || config.git.collectDiff);
+  const range = dailyRange(date);
+  const activity = useGit
+    ? await collectGitActivity({
+        repoPath: options.repo,
+        scanRoots: options.repo ? [] : config.scanRoots,
+        range,
+        gitConfig: config.git
+      })
+    : { repo: undefined, commits: [] };
+  const collectDiff = useGit && activity.commits.length > 0 && (options.includeDiff === true || config.git.collectDiff);
 
   if (collectDiff) {
     await Promise.all(
-      commits.map(async (commit) => {
-        commit.diff = await getCommitPatch(repo.path, commit.hash, config.git);
+      activity.commits.map(async (commit) => {
+        commit.diff = await getCommitPatch(commit.repoPath ?? activity.repo?.path ?? process.cwd(), commit.hash, config.git);
       })
     );
   }
 
-  const diffCollection = collectDiff ? collectDiffMetadata(commits, config.git) : undefined;
+  const diffCollection = collectDiff ? collectDiffMetadata(activity.commits, config.git) : undefined;
   const event = createJournalEvent({
     date,
-    repo,
-    commits,
+    repo: activity.repo,
+    commits: activity.commits,
     device: config.device,
     diffCollection
   });
@@ -103,6 +112,48 @@ export async function runDaily(options: Partial<DailyCommandOptions> = {}): Prom
   );
 
   return { eventPath, journalPath, diffCollection };
+}
+
+async function collectGitActivity(input: {
+  repoPath?: string;
+  scanRoots: string[];
+  range: ReturnType<typeof dailyRange>;
+  gitConfig: Awaited<ReturnType<typeof loadConfig>>["git"];
+}): Promise<{ repo?: RepoInfo; commits: CommitSummary[] }> {
+  const repoPaths = input.repoPath
+    ? [input.repoPath]
+    : input.scanRoots.length > 0
+      ? await discoverGitRepositories(input.scanRoots)
+      : [process.cwd()];
+
+  const collected = await Promise.all(
+    repoPaths.map(async (repoPath) => {
+      const repo = await getRepoInfo(repoPath);
+      const commits = await listCommits(repo.path, input.range, {
+        includeAllBranches: input.gitConfig.includeAllBranches,
+        includeMergeCommits: input.gitConfig.includeMergeCommits,
+        authorEmails: input.gitConfig.authorEmails,
+        excludeCommitMessages: input.gitConfig.excludeCommitMessages,
+        exclude: input.gitConfig.exclude
+      });
+
+      return {
+        repo,
+        commits: commits.map((commit) => ({
+          ...commit,
+          repo: repo.name,
+          repoPath: repo.path,
+          branch: repo.branch
+        }))
+      };
+    })
+  );
+
+  const commits = collected.flatMap((entry) => entry.commits).sort((a, b) => a.date.localeCompare(b.date));
+  return {
+    repo: collected.length === 1 ? collected[0].repo : undefined,
+    commits
+  };
 }
 
 export async function runDailySync(options: Partial<DailyCommandOptions> = {}): Promise<{

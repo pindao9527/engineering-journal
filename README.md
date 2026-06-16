@@ -1,123 +1,43 @@
 # engineering-journal
 
-`engineering-journal` 是一个面向工程师的个人工程日志 CLI 工具。
+`engineering-journal` 是一个个人工程日志 CLI。命令名是 `englog`。
 
-它的目标是把每日 Git 提交、代码变化、技术判断、验证方式和个人反思沉淀成长期可复盘的工程记录。
+它的目标是把指定日期的 Git 提交、代码变化、工程判断、验证方式和个人反思，沉淀成长期可复盘、可检索、可汇总的工程记录。
 
-CLI 命令名为 `englog`。
+核心思路：
 
-## 当前状态
+- 自动收集当天 Git commit、变更文件和增删行。
+- 可扫描多个本地 Git 仓库，并默认覆盖所有本地可见分支。
+- 默认排除 merge commits，避免把合并别人代码的提交写进个人日报。
+- 可按 author email 只保留自己的提交。
+- 可选接入 OpenAI-compatible API，从提交和受控 diff 中提炼价值、风险、测试信号和标签。
+- 日报、周报、月报等 Markdown 可重复渲染，但人工记录区会保留。
 
-当前项目已经完成最小日报闭环的主体能力：
+## 快速开始
 
-- TypeScript + Node.js 工程配置。
-- `englog` CLI 入口。
-- `englog init` 初始化日志目录、默认模板、配置文件和本地缓存忽略规则。
-- `englog daily` 采集指定日期的 Git 提交，写入 append-only 事件 JSON，并生成日报 Markdown。
-- `englog daily --include-diff` 可在显式授权下采集受控 commit patch，供事件追溯和 AI 分析使用。
-- `englog daily --no-git` 在非 Git 场景生成空事件和日报骨架。
-- `englog daily --sync` 在干净工作区中执行 pull、采集、渲染、commit 和 push。
-- `englog render daily` 基于已有事件重渲染日报自动区，并保留人工区。
-- `englog status` 查看今天事件、日报、人工区标记和 Git 同步状态。
-- `englog weekly/monthly/quarterly/half-year/yearly` 基于低一层日志生成周期总结，并提示缺失来源。
-- `englog render weekly/monthly/quarterly/half-year/yearly` 重渲染周期总结自动区，并保留人工区。
-- 可选 OpenAI-compatible API 分析接口，将模型返回的结构化结果写入事件 `analysis` 字段。
-- `englog analyze daily` 可对指定日期已有事件重新运行 AI 分析，支持 `--dry-run` 预览且不落盘。
-- `englog search` 可直接检索事件 JSON 与各周期 Markdown，定位日期、文件和标签。
-- `englog stats` 可按月份和标签聚合事件、提交、文件、测试、风险、项目和标签分布。
-- `config`、`git`、`journal`、`storage`、`time` 等核心模块边界。
-- 构建、测试、类型检查和开发运行脚本。
-
-Dashboard 可视化仍在后续里程碑中。
-
-## 环境要求
-
-- Node.js 20 或更高版本。
-- npm.
-
-## 安装
+### 安装与构建
 
 ```bash
 npm install
-```
-
-## 开发
-
-从源码运行 CLI：
-
-```bash
-npm run dev -- --help
-```
-
-构建：
-
-```bash
 npm run build
+npm link
 ```
 
-运行测试：
-
-```bash
-npm test
-```
-
-运行类型检查：
-
-```bash
-npm run lint
-```
-
-构建后运行编译产物：
-
-```bash
-./dist/cli.js --help
-```
-
-## CLI
+查看命令：
 
 ```bash
 englog --help
 ```
 
-当前可用命令：
+### 初始化日志仓库
 
-```bash
-englog init
-englog daily --date 2026-06-15
-englog daily --date 2026-06-15 --repo /path/to/repo
-englog daily --date 2026-06-15 --no-git
-englog daily --date 2026-06-15 --include-diff
-englog daily --date 2026-06-15 --sync
-englog render daily --date 2026-06-15
-englog weekly --week 2026-W25
-englog monthly --month 2026-06
-englog quarterly --quarter 2026-Q2
-englog half-year --period 2026-H1
-englog yearly --year 2026
-englog render weekly --week 2026-W25
-englog analyze daily --date 2026-06-15 --dry-run
-englog analyze daily --date 2026-06-15
-englog search auth middleware
-englog stats --month 2026-06
-englog stats --tag auth
-englog status --date 2026-06-15
-```
-
-`englog daily --sync` 适合在日志仓库已经配置好 Git remote/upstream 后使用。它要求工作区干净；如果存在未提交改动，会先停止并提示你 commit、stash 或清理后再同步，避免把人工修改和自动日报混在同一个提交里。
-
-`englog status` 会给出一个 `next action`，用于判断当前应该运行 `englog daily`、`englog daily --sync`、`git push`，还是先处理本地未提交内容。
-
-## 推荐操作流程
-
-### 首次初始化
-
-在准备存放工程日志的目录中初始化：
+在准备存放工程日志的目录中执行：
 
 ```bash
 englog init
 ```
 
-建议把这个目录作为一个私有 Git 仓库使用，方便多设备同步和长期备份：
+建议把这个目录作为私有 Git 仓库同步和备份：
 
 ```bash
 git init
@@ -127,138 +47,265 @@ git remote add origin <your-private-repo-url>
 git push -u origin HEAD
 ```
 
-如果日常记录的是另一个代码仓库，可以在 `englog.config.json` 中设置：
+### 配置扫描范围
+
+编辑日志目录中的 `englog.config.json`。这里的 `"journalRoot": "."` 表示日志写入当前日志目录，也就是这个配置文件所在目录：
 
 ```json
 {
   "journalRoot": ".",
-  "defaultRepo": "/path/to/your/project"
+  "scanRoots": ["/Users/you/workspace"],
+  "git": {
+    "includeAllBranches": true,
+    "includeMergeCommits": false,
+    "authorEmails": ["you@example.com"],
+    "excludeCommitMessages": [
+      "^chore\\(release\\):",
+      "^Release "
+    ]
+  }
 }
 ```
 
-### 每日记录
+生成指定日期日报：
 
-一天结束时先查看状态：
+```bash
+englog daily --date 2026-06-15
+```
+
+`englog` 会在 `scanRoots` 下发现 Git 仓库，收集指定日期的提交，然后写入：
+
+```text
+{journalRoot}/data/events/2026-06-15/{eventId}.json
+{journalRoot}/journals/daily/2026-06-15.md
+```
+
+如果 `journalRoot` 是 `"."`，这些文件就会出现在 `englog.config.json` 所在目录下。
+
+## 配置模型
+
+### `journalRoot`
+
+日志写入目录。它只决定 `data/`、`journals/`、`templates/` 放在哪里，不决定扫描哪些 Git 仓库。
+
+```json
+{
+  "journalRoot": "/Users/you/engineering-notes"
+}
+```
+
+如果不配置，默认是 `englog.config.json` 所在目录。
+
+### `scanRoots`
+
+Git 仓库发现范围。它表示“从哪些目录下面找 Git 仓库”，不是绑定某一个仓库。
+
+```json
+{
+  "scanRoots": ["/Users/you/workspace"]
+}
+```
+
+如果 `scanRoots` 中的目录本身是 Git 仓库，会扫描该仓库；如果它下面有多个 Git 仓库，会递归发现。扫描会跳过 `node_modules`、`dist`、`build`、`coverage`、`.cache` 等常见重目录。
+
+如果没有配置 `scanRoots`，`englog daily` 默认采集当前命令所在的 Git 仓库。
+
+### 单仓库临时采集
+
+`--repo` 用于临时只采集一个仓库，会绕过 `scanRoots`：
+
+```bash
+englog daily --date 2026-06-15 --repo /path/to/project
+```
+
+### 多分支
+
+默认配置：
+
+```json
+{
+  "git": {
+    "includeAllBranches": true
+  }
+}
+```
+
+这会使用所有本地可见分支中的 commit，而不是只看当前分支。这样一个项目中 `main`、`feature/*`、`fix/*` 上同一天的提交都能进入日报。
+
+同一个 commit 如果被多个分支引用，只记录一次。
+
+### Merge Commit
+
+默认配置：
+
+```json
+{
+  "git": {
+    "includeMergeCommits": false
+  }
+}
+```
+
+默认排除 merge commits，避免把“合并别人代码”的提交当作你的工程产出。需要记录 merge commit 时再改成 `true`。
+
+### 作者过滤
+
+强烈建议配置 `authorEmails`：
+
+```json
+{
+  "git": {
+    "authorEmails": ["you@example.com", "you@company.com"]
+  }
+}
+```
+
+配置后只收集 author email 命中的提交。没有配置时，会收集扫描到的仓库中指定日期的所有提交。
+
+### 提交信息过滤
+
+可以用正则排除 release、自动化提交等低价值提交：
+
+```json
+{
+  "git": {
+    "excludeCommitMessages": [
+      "^chore\\(release\\):",
+      "^Release "
+    ]
+  }
+}
+```
+
+这些规则会按正则匹配 commit message，大小写不敏感。
+
+## 日常使用
+
+### 查看状态
 
 ```bash
 englog status
+englog status --date 2026-06-15
 ```
 
-普通使用建议先运行：
+状态会显示当天事件、日报是否存在、人工区标记是否正常、日志仓库 Git 状态和建议下一步动作。
+
+### 生成日报
 
 ```bash
 englog daily
+englog daily --date 2026-06-15
 ```
 
-这会采集当天 Git commit，写入 append-only 事件 JSON，并生成或更新 `journals/daily/{date}.md`。生成后打开当天日报，在人工区补充：
+日报生成流程：
 
-- 为什么做这些改动。
-- 哪些判断是关键取舍。
-- 如何验证结果可信。
-- 明天最值得继续推进什么。
+1. 发现或读取 Git 仓库。
+2. 按日期收集 commit。
+3. 按作者、merge、message 规则过滤。
+4. 写入 append-only 事件 JSON。
+5. 合并当天所有事件。
+6. 渲染日报 Markdown。
 
 如果只是想补一篇没有 Git commit 的日志：
 
 ```bash
-englog daily --no-git
+englog daily --date 2026-06-15 --no-git
 ```
 
-### 多设备同步
+### 人工区
 
-日志仓库已经配置 remote/upstream 后，推荐日常使用：
+日报中自动区由 `englog` 管理，人工区由你维护：
+
+```text
+<!-- englog:auto:start -->
+...
+<!-- englog:auto:end -->
+
+<!-- englog:manual:start -->
+...
+<!-- englog:manual:end -->
+```
+
+再次运行 `daily` 或 `render` 时，只会替换自动区，人工区会保留。
+
+### 同步日志仓库
+
+日志仓库配置好 remote/upstream 后可以使用：
 
 ```bash
 englog daily --sync
 ```
 
-它会执行 pull、采集、渲染、commit 和 push。执行前需要工作区干净；如果你刚刚手动编辑过日报，先提交或暂存这些改动，再运行同步流程。
+它会执行：
 
-### AI 与 diff 增强
+1. 检查日志仓库工作区是否干净。
+2. `git pull --rebase`
+3. 采集并渲染日报。
+4. commit 生成的日志文件。
+5. push 到远端。
 
-AI 分析默认关闭。启用 AI 后，`englog daily` 会把 commit 元信息、文件变化和统计信息发送给配置的 OpenAI-compatible 服务，分析结果写入事件 `analysis` 字段。
+如果工作区有未提交改动，命令会停止，避免把人工修改和自动生成内容混在一起提交。
 
-如果希望 AI 基于真实代码变化做更具体的复盘，可以显式开启受控 diff 采集：
+## AI 分析
 
-```bash
-englog daily --include-diff
-```
+AI 分析默认关闭。启用后，`englog daily` 会把 commit 元信息、文件变化、统计信息以及可选 diff 发送给配置的 OpenAI-compatible 服务，并把模型返回的结构化结果写入事件 `analysis` 字段。
 
-这只读取已提交 commit 的 patch，不读取未提交工作区内容。开启前建议确认 `git.exclude` 已覆盖 lockfile、构建产物、环境变量文件、证书密钥等敏感路径。
-
-已有事件需要重新分析时，先 dry-run 查看结果：
-
-```bash
-englog analyze daily --date 2026-06-15 --dry-run
-```
-
-确认可以接受后再写回并重渲染日报：
-
-```bash
-englog analyze daily --date 2026-06-15
-```
-
-### 周期复盘
-
-建议每周末生成周报：
-
-```bash
-englog weekly
-```
-
-每月或阶段结束时继续向上汇总：
-
-```bash
-englog monthly
-englog quarterly
-englog half-year
-englog yearly
-```
-
-周期总结会优先基于低一层日志生成。缺少日报或周报时，CLI 会在总结中列出缺失来源，并提示应该先补哪些命令。
-
-### 检索与统计
-
-想回看某个主题时使用搜索：
-
-```bash
-englog search auth middleware
-```
-
-想看一段时间内主要工程主题、测试信号或风险记录时使用统计：
-
-```bash
-englog stats --month 2026-06
-englog stats --tag auth
-```
-
-一个比较稳的日常节奏是：每天 `status -> daily -> 人工补充 -> sync`，每周 `weekly`，每月 `monthly + stats`。这样自动记录负责事实，人工区负责判断，周期总结负责把碎片变成可复盘的脉络。
-
-## AI 分析配置
-
-AI 分析默认关闭。需要接入 OpenAI 兼容接口时，在 `englog.config.json` 中启用：
+示例：
 
 ```json
 {
-  "defaultRepo": ".",
   "analysis": {
     "enabled": true,
     "provider": "openai-compatible",
     "api": "responses",
     "baseUrl": "https://api.openai.com/v1",
     "model": "gpt-5.5",
-    "apiKey": "your-api-key",
-    "temperature": 0.2
+    "apiKey": "your-api-key"
   }
 }
 ```
 
-`journalRoot` 是日志写入目标目录，可以写在 `englog.config.json` 中，例如 `"journalRoot": "./my-journal"`；如果不配置，默认就是当前配置文件所在文件夹。
+说明：
+
+- `apiKey` 只从 JSON 配置读取。
+- `api` 默认是 `responses`，请求 `{baseUrl}/responses`。
+- 也可以配置 `"api": "chat-completions"`，请求 `{baseUrl}/chat/completions`。
+- `baseUrl` 可以是 OpenAI 官方 `/v1` 地址，也可以是兼容服务地址。
+- 不配置 `apiKey` 或配置为空时，不发送鉴权头。
+- `temperature` 只有在 JSON 中显式配置时才会发送。
+
+已有事件可以重新分析：
+
+```bash
+englog analyze daily --date 2026-06-15 --dry-run
+englog analyze daily --date 2026-06-15
+```
+
+`--dry-run` 只打印将写入的结果，不修改事件 JSON 或日报。去掉 `--dry-run` 后会更新事件 `analysis` 字段，并重渲染日报自动区。
 
 ## Diff 采集与隐私
 
-代码 diff 采集默认关闭。只有在运行 `englog daily --include-diff`，或在配置中显式设置 `git.collectDiff: true` 时，CLI 才会读取已提交 commit 的 patch；不会读取 unstaged 或 uncommitted 工作区内容。
+默认不采集代码 patch。
 
-可以在 `englog.config.json` 中调整采集边界：
+显式开启：
+
+```bash
+englog daily --date 2026-06-15 --include-diff
+```
+
+或配置默认开启：
+
+```json
+{
+  "git": {
+    "collectDiff": true
+  }
+}
+```
+
+diff 采集只读取已提交 commit 的 patch，不读取 unstaged 或 uncommitted 工作区内容。
+
+可以配置边界：
 
 ```json
 {
@@ -267,52 +314,117 @@ AI 分析默认关闭。需要接入 OpenAI 兼容接口时，在 `englog.config
     "maxDiffChars": 30000,
     "maxFileDiffChars": 8000,
     "exclude": [
+      "node_modules/**",
+      "dist/**",
+      "build/**",
+      "coverage/**",
+      "openspec/**",
+      ".openspec/**",
       "*.lock",
       "package-lock.json",
       "pnpm-lock.yaml",
       "yarn.lock",
-      "dist/**",
-      "build/**",
       ".env*",
       "*.pem",
-      "*.key"
+      "*.key",
+      "*.crt",
+      "*.p12",
+      "*.png",
+      "*.jpg",
+      "*.jpeg",
+      "*.gif",
+      "*.webp",
+      "*.pdf",
+      "*.zip",
+      "*.tar",
+      "*.gz"
     ]
   }
 }
 ```
 
-开启后，受限 diff 会写入事件 JSON 的 commit `diff` 字段，事件顶层也会记录 `diffCollection` 元信息，包括最大字符数、被排除文件和是否截断。默认排除 lockfile、构建产物、依赖目录、环境变量文件、证书密钥和常见二进制文件。若 AI 分析也已启用，这些受控 diff 会作为分析输入发送给你配置的 OpenAI-compatible 服务。
+开启 diff 且启用 AI 时，受控 patch 会进入模型输入。事件 JSON 会记录 diff 是否启用、排除文件和是否截断。开启前请确认排除规则覆盖敏感文件。
 
-`api` 默认使用 `responses`，会请求 `{baseUrl}/responses`；如需兼容旧服务，也可以设置为 `chat-completions`，请求 `{baseUrl}/chat/completions`。`baseUrl` 可以是 OpenAI 兼容服务的 `/v1` 根地址，也可以直接是完整的 `/responses` 或 `/chat/completions` 地址。本地兼容服务也可以使用类似 `http://localhost:11434/v1` 的地址。配置 `apiKey` 时，CLI 会从 JSON 中读取密钥并发送 Bearer token；不配置或为空时不会发送鉴权头。
+## 周期复盘
 
-启用后，`englog daily` 和 `englog daily --sync` 会在写入事件 JSON 前调用一次兼容接口，要求模型返回严格 JSON，并填充：
-
-```text
-summary
-valuableChanges
-technicalHighlights
-decisions
-risks
-tests
-aiAssistedParts
-humanReviewNotes
-tags
-```
-
-其中 `tags` 会写入事件顶层 `tags` 字段，并在日报“采集信息”里展示；其他字段写入事件 `analysis`。
-
-已有事件也可以重新分析：
+日报生成后，可以向上汇总：
 
 ```bash
-englog analyze daily --date 2026-06-15 --dry-run
-englog analyze daily --date 2026-06-15
+englog weekly --week 2026-W25
+englog monthly --month 2026-06
+englog quarterly --quarter 2026-Q2
+englog half-year --period 2026-H1
+englog yearly --year 2026
 ```
 
-`--dry-run` 会打印将写入的分析结果，不修改事件 JSON 或日报。去掉 `--dry-run` 后，CLI 会更新当天事件的 `analysis` 字段，并重渲染对应日报自动区，人工区仍会保留。
+也可以重渲染已有周期总结：
 
-默认输出路径：
+```bash
+englog render weekly --week 2026-W25
+englog render monthly --month 2026-06
+englog render quarterly --quarter 2026-Q2
+englog render half-year --period 2026-H1
+englog render yearly --year 2026
+```
+
+周期总结基于低一层日志生成：
 
 ```text
+daily -> weekly -> monthly -> quarterly -> half-year -> yearly
+```
+
+缺少日报或周报时，CLI 会在总结中列出缺失来源，并提示应该先补哪些命令。
+
+## 检索与统计
+
+搜索事件 JSON 和 Markdown：
+
+```bash
+englog search auth middleware
+```
+
+统计月份、标签、项目、提交、文件、测试和风险：
+
+```bash
+englog stats --month 2026-06
+englog stats --tag auth
+```
+
+## 命令速查
+
+```bash
+englog init
+englog status
+englog status --date 2026-06-15
+
+englog daily
+englog daily --date 2026-06-15
+englog daily --date 2026-06-15 --repo /path/to/repo
+englog daily --date 2026-06-15 --no-git
+englog daily --date 2026-06-15 --include-diff
+englog daily --date 2026-06-15 --sync
+
+englog render daily --date 2026-06-15
+englog analyze daily --date 2026-06-15 --dry-run
+englog analyze daily --date 2026-06-15
+
+englog weekly --week 2026-W25
+englog monthly --month 2026-06
+englog quarterly --quarter 2026-Q2
+englog half-year --period 2026-H1
+englog yearly --year 2026
+
+englog search auth middleware
+englog stats --month 2026-06
+englog stats --tag auth
+```
+
+## 文件结构
+
+默认输出：
+
+```text
+englog.config.json
 data/events/{date}/{eventId}.json
 journals/daily/{date}.md
 journals/weekly/{yyyy-Www}.md
@@ -320,17 +432,35 @@ journals/monthly/{yyyy-MM}.md
 journals/quarterly/{yyyy-Qn}.md
 journals/half-year/{yyyy-Hn}.md
 journals/yearly/{yyyy}.md
+templates/daily.md
+templates/weekly.md
+templates/monthly.md
+templates/quarterly.md
+templates/half-year.md
+templates/yearly.md
 ```
 
-日报由 `templates/daily.md` 提供初始结构，周期总结由对应的 `templates/{period}.md` 提供初始结构。再次执行生成或 `render` 命令时，CLI 只替换 `<!-- englog:auto:start -->` 与 `<!-- englog:auto:end -->` 之间的自动区，保留 `<!-- englog:manual:start -->` 与 `<!-- englog:manual:end -->` 之间的人工记录。
+事件 JSON 是 append-only。日报和周期总结可以由事件或低层日志重渲染。
 
-本地开发时，可以直接运行构建产物：
+## 开发
+
+环境要求：
+
+- Node.js 20 或更高版本
+- npm
+
+常用命令：
 
 ```bash
+npm install
+npm run dev -- --help
+npm run build
+npm test
+npm run lint
 ./dist/cli.js --help
 ```
 
-## 项目结构
+项目结构：
 
 ```text
 src/

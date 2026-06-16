@@ -68,7 +68,7 @@ export function renderDailyAutoSection(input: RenderDailyInput): string {
     "",
     commits.length === 0
       ? "- 暂无提交。"
-      : commits.map((commit) => `- \`${commit.hash.slice(0, 7)}\` ${commit.message} (${commit.authorName}, ${commit.date})`).join("\n"),
+      : commits.map((commit) => `- \`${commit.hash.slice(0, 7)}\` ${renderCommitSource(commit)}${commit.message} (${commit.authorName}, ${commit.date})`).join("\n"),
     "",
     "## 主要变化",
     "",
@@ -115,6 +115,10 @@ export function renderDailyAutoSection(input: RenderDailyInput): string {
   ]
     .filter((line) => line !== undefined)
     .join("\n");
+}
+
+function renderCommitSource(commit: JournalEvent["commits"][number]): string {
+  return commit.repo ? `[${commit.repo}] ` : "";
 }
 
 function renderDiffCollectionInfo(collections: NonNullable<JournalEvent["diffCollection"]>[]): string {

@@ -69,7 +69,7 @@ export async function analyzeEventWithOpenAICompatibleApi(
   const response = await fetch(endpointUrl(baseUrl, api), {
     method: "POST",
     headers,
-    body: JSON.stringify(requestBody(api, model, event, config.temperature ?? 0.2))
+    body: JSON.stringify(requestBody(api, model, event, config.temperature))
   });
 
   if (!response.ok) {
@@ -104,7 +104,12 @@ function endpointUrl(baseUrl: string, api: "responses" | "chat-completions"): st
   return api === "responses" ? `${normalized}/responses` : `${normalized}/chat/completions`;
 }
 
-function requestBody(api: "responses" | "chat-completions", model: string, event: JournalEvent, temperature: number): object {
+function requestBody(
+  api: "responses" | "chat-completions",
+  model: string,
+  event: JournalEvent,
+  temperature: number | undefined
+): object {
   const instructions = [
     "你是 engineering-journal 的工程日志分析器。",
     "只输出严格 JSON，不要 Markdown，不要代码块。",
@@ -118,15 +123,14 @@ function requestBody(api: "responses" | "chat-completions", model: string, event
   if (api === "responses") {
     return {
       model,
-      temperature,
       instructions,
-      input
+      input,
+      ...(temperature === undefined ? {} : { temperature })
     };
   }
 
   return {
     model,
-    temperature,
     messages: [
       {
         role: "system",
@@ -136,7 +140,8 @@ function requestBody(api: "responses" | "chat-completions", model: string, event
         role: "user",
         content: input
       }
-    ]
+    ],
+    ...(temperature === undefined ? {} : { temperature })
   };
 }
 

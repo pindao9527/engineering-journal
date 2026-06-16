@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, readdir, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -94,7 +94,6 @@ test("daily defaults journalRoot to the current directory when config omits it",
     path.join(cwd, "englog.config.json"),
     `${JSON.stringify(
       {
-        defaultRepo: ".",
         analysis: {
           enabled: false
         }
@@ -109,6 +108,38 @@ test("daily defaults journalRoot to the current directory when config omits it",
 
   await assertFileExists(path.join(cwd, "data", "events", "2026-06-15"));
   await assertFileExists(path.join(cwd, "journals", "daily", "2026-06-15.md"));
+});
+
+test("daily ignores legacy defaultRepo and collects the command working tree", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "englog-ignore-default-repo-"));
+  runCommand("git", ["init"], cwd);
+  runCommand("git", ["config", "user.name", "Test Engineer"], cwd);
+  runCommand("git", ["config", "user.email", "test@example.com"], cwd);
+  await writeFile(path.join(cwd, "feature.ts"), "export const source = true;\n", "utf8");
+  runCommand("git", ["add", "feature.ts"], cwd);
+  runCommand("git", ["commit", "-m", "Collect from cwd"], cwd, {
+    GIT_AUTHOR_DATE: "2026-06-15T10:00:00+08:00",
+    GIT_COMMITTER_DATE: "2026-06-15T10:00:00+08:00"
+  });
+  await writeFile(
+    path.join(cwd, "englog.config.json"),
+    `${JSON.stringify(
+      {
+        journalRoot: ".",
+        defaultRepo: "/path/that/should/not/be/used"
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+
+  runCli(["daily", "--date", "2026-06-15"], cwd);
+
+  const eventDirectory = path.join(cwd, "data", "events", "2026-06-15");
+  const eventFiles = (await readdir(eventDirectory)).filter((file) => file.endsWith(".json"));
+  const event = JSON.parse(await readFile(path.join(eventDirectory, eventFiles[0]), "utf8"));
+  assert.equal(event.commits[0].message, "Collect from cwd");
 });
 
 test("daily collects commits from a Git repository", async () => {
@@ -141,6 +172,136 @@ test("daily collects commits from a Git repository", async () => {
   assert.match(journal, /feature\.ts/);
 });
 
+test("daily excludes configured file patterns from changed files and stats", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "englog-exclude-files-"));
+  initializeTestRepo(cwd, "Test Engineer", "test@example.com");
+  runCli(["init"], cwd);
+  await writeFile(
+    path.join(cwd, "englog.config.json"),
+    `${JSON.stringify(
+      {
+        journalRoot: ".",
+        git: {
+          exclude: ["openspec/**"]
+        }
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+  await mkdir(path.join(cwd, "openspec"));
+  await writeFile(path.join(cwd, "openspec", "plan.md"), "# noisy plan\n", "utf8");
+  await writeFile(path.join(cwd, "feature.ts"), "export const feature = true;\n", "utf8");
+  runCommand("git", ["add", "openspec/plan.md", "feature.ts"], cwd);
+  runCommand("git", ["commit", "-m", "Add feature with openspec notes"], cwd, {
+    GIT_AUTHOR_DATE: "2026-06-15T10:00:00+08:00",
+    GIT_COMMITTER_DATE: "2026-06-15T10:00:00+08:00"
+  });
+
+  runCli(["daily", "--date", "2026-06-15"], cwd);
+
+  const event = JSON.parse(await readFile(await firstEventPath(cwd, "2026-06-15"), "utf8"));
+  assert.deepEqual(event.changedFiles, ["feature.ts"]);
+  assert.deepEqual(event.commits[0].changedFiles, ["feature.ts"]);
+  assert.equal(event.diffStats.filesChanged, 1);
+  assert.equal(event.diffStats.insertions, 1);
+
+  const journal = await readFile(path.join(cwd, "journals", "daily", "2026-06-15.md"), "utf8");
+  assert.doesNotMatch(journal, /openspec\/plan\.md/);
+});
+
+test("daily scans configured roots across repos, all branches, and filters merge commits", async () => {
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "englog-scan-"));
+  const journal = path.join(workspace, "notes");
+  const repoA = path.join(workspace, "repo-a");
+  const repoB = path.join(workspace, "repo-b");
+  await mkdir(journal);
+  await mkdir(repoA);
+  await mkdir(repoB);
+
+  runCli(["init"], journal);
+  await writeFile(
+    path.join(journal, "englog.config.json"),
+    `${JSON.stringify(
+      {
+        journalRoot: ".",
+        scanRoots: [".."],
+        git: {
+          includeAllBranches: true,
+          includeMergeCommits: false,
+          authorEmails: ["me@example.com"]
+        },
+        analysis: {
+          enabled: false
+        }
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+
+  initializeTestRepo(repoA, "Me", "me@example.com");
+  await writeFile(path.join(repoA, "base.txt"), "base\n", "utf8");
+  runCommand("git", ["add", "base.txt"], repoA);
+  runCommand("git", ["commit", "-m", "Base commit"], repoA, {
+    GIT_AUTHOR_DATE: "2026-06-14T10:00:00+08:00",
+    GIT_COMMITTER_DATE: "2026-06-14T10:00:00+08:00"
+  });
+  runCommand("git", ["checkout", "-b", "feature/scan"], repoA);
+  await writeFile(path.join(repoA, "feature.txt"), "feature\n", "utf8");
+  runCommand("git", ["add", "feature.txt"], repoA);
+  runCommand("git", ["commit", "-m", "Feature branch work"], repoA, {
+    GIT_AUTHOR_DATE: "2026-06-15T09:00:00+08:00",
+    GIT_COMMITTER_DATE: "2026-06-15T09:00:00+08:00"
+  });
+  runCommand("git", ["checkout", "main"], repoA);
+  await writeFile(path.join(repoA, "main.txt"), "main\n", "utf8");
+  runCommand("git", ["add", "main.txt"], repoA);
+  runCommand("git", ["commit", "-m", "Main branch work"], repoA, {
+    GIT_AUTHOR_DATE: "2026-06-15T10:00:00+08:00",
+    GIT_COMMITTER_DATE: "2026-06-15T10:00:00+08:00"
+  });
+  runCommand("git", ["merge", "--no-ff", "feature/scan", "-m", "Merge branch feature/scan"], repoA, {
+    GIT_AUTHOR_DATE: "2026-06-15T11:00:00+08:00",
+    GIT_COMMITTER_DATE: "2026-06-15T11:00:00+08:00"
+  });
+
+  initializeTestRepo(repoB, "Me", "me@example.com");
+  await writeFile(path.join(repoB, "mine.txt"), "mine\n", "utf8");
+  runCommand("git", ["add", "mine.txt"], repoB);
+  runCommand("git", ["commit", "-m", "Second repo work"], repoB, {
+    GIT_AUTHOR_DATE: "2026-06-15T12:00:00+08:00",
+    GIT_COMMITTER_DATE: "2026-06-15T12:00:00+08:00"
+  });
+  await writeFile(path.join(repoB, "other.txt"), "other\n", "utf8");
+  runCommand("git", ["add", "other.txt"], repoB);
+  runCommand("git", ["commit", "-m", "Other person work"], repoB, {
+    GIT_AUTHOR_NAME: "Other",
+    GIT_AUTHOR_EMAIL: "other@example.com",
+    GIT_AUTHOR_DATE: "2026-06-15T13:00:00+08:00",
+    GIT_COMMITTER_DATE: "2026-06-15T13:00:00+08:00"
+  });
+
+  runCli(["daily", "--date", "2026-06-15"], journal);
+
+  const eventPath = await firstEventPath(journal, "2026-06-15");
+  const event = JSON.parse(await readFile(eventPath, "utf8"));
+  assert.deepEqual(
+    event.commits.map((commit) => commit.message),
+    ["Feature branch work", "Main branch work", "Second repo work"]
+  );
+  assert.deepEqual([...new Set(event.commits.map((commit) => commit.repo))].sort(), ["repo-a", "repo-b"]);
+  assert.equal(event.commits.every((commit) => commit.authorEmail === "me@example.com"), true);
+
+  const rendered = await readFile(path.join(journal, "journals", "daily", "2026-06-15.md"), "utf8");
+  assert.match(rendered, /\[repo-a\] Feature branch work/);
+  assert.match(rendered, /\[repo-b\] Second repo work/);
+  assert.doesNotMatch(rendered, /Merge branch feature\/scan/);
+  assert.doesNotMatch(rendered, /Other person work/);
+});
+
 test("daily --include-diff stores bounded patches with exclusions and truncation metadata", async () => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "englog-diff-"));
   runCommand("git", ["init"], cwd);
@@ -152,7 +313,6 @@ test("daily --include-diff stores bounded patches with exclusions and truncation
     `${JSON.stringify(
       {
         journalRoot: ".",
-        defaultRepo: ".",
         git: {
           collectDiff: false,
           maxDiffChars: 260,
@@ -273,7 +433,6 @@ test("daily can enrich event analysis through an OpenAI-compatible API", async (
       `${JSON.stringify(
         {
           journalRoot: ".",
-          defaultRepo: ".",
           analysis: {
             enabled: true,
             provider: "openai-compatible",
@@ -300,6 +459,7 @@ test("daily can enrich event analysis through an OpenAI-compatible API", async (
     assert.deepEqual(requests[0].body.model, "gpt-5.5");
     assert.equal(requests[0].url, "https://api.openai.com/v1/responses");
     assert.equal(requests[0].authorization, "Bearer json-test-key");
+    assert.equal("temperature" in requests[0].body, false);
     assert.equal(typeof requests[0].body.input, "string");
 
     const journal = await readFile(path.join(cwd, "journals", "daily", "2026-06-15.md"), "utf8");
@@ -327,7 +487,6 @@ test("AI analysis payload includes collected diff when daily --include-diff is u
     `${JSON.stringify(
       {
         journalRoot: ".",
-        defaultRepo: ".",
         git: {
           collectDiff: false,
           maxDiffChars: 30000,
@@ -400,7 +559,6 @@ test("analyze daily supports dry-run and can re-analyze stored events", async ()
     `${JSON.stringify(
       {
         journalRoot: ".",
-        defaultRepo: ".",
         analysis: {
           enabled: true,
           provider: "openai-compatible",
@@ -743,6 +901,12 @@ function runCommand(command, args, cwd, env = {}) {
 
   assert.equal(result.status, 0, result.stderr || result.stdout);
   return result.stdout;
+}
+
+function initializeTestRepo(cwd, name, email) {
+  runCommand("git", ["init", "-b", "main"], cwd);
+  runCommand("git", ["config", "user.name", name], cwd);
+  runCommand("git", ["config", "user.email", email], cwd);
 }
 
 async function assertFileExists(filePath) {

@@ -17,7 +17,7 @@ export function createProgram(): Command {
   program
     .name("englog")
     .description("Turn Git activity into a durable personal engineering journal.")
-    .version("0.1.0");
+    .version("0.1.1");
 
   registerInitCommand(program);
   registerDailyCommand(program);

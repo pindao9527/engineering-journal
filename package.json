@@ -1,6 +1,6 @@
 {
   "name": "engineering-journal",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Personal engineering journal CLI that turns Git activity into durable engineering notes.",
   "type": "module",
   "bin": {

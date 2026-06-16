@@ -3,7 +3,7 @@ import path from "node:path";
 
 export interface EnglogConfig {
   journalRoot: string;
-  defaultRepo?: string;
+  scanRoots: string[];
   device?: string;
   git: GitConfig;
   analysis?: AnalysisConfig;
@@ -11,6 +11,10 @@ export interface EnglogConfig {
 
 export interface GitConfig {
   collectDiff: boolean;
+  includeAllBranches: boolean;
+  includeMergeCommits: boolean;
+  authorEmails: string[];
+  excludeCommitMessages: string[];
   maxDiffChars: number;
   maxFileDiffChars: number;
   exclude: string[];
@@ -27,6 +31,7 @@ export interface AnalysisConfig {
 }
 
 type RawEnglogConfig = Omit<Partial<EnglogConfig>, "git" | "analysis"> & {
+  defaultRepo?: string;
   git?: Partial<GitConfig>;
   analysis?: AnalysisConfig;
 };
@@ -35,6 +40,10 @@ export const DEFAULT_CONFIG_FILE = "englog.config.json";
 
 export const DEFAULT_GIT_CONFIG: GitConfig = {
   collectDiff: false,
+  includeAllBranches: true,
+  includeMergeCommits: false,
+  authorEmails: [],
+  excludeCommitMessages: [],
   maxDiffChars: 30000,
   maxFileDiffChars: 8000,
   exclude: [
@@ -42,6 +51,8 @@ export const DEFAULT_GIT_CONFIG: GitConfig = {
     "dist/**",
     "build/**",
     "coverage/**",
+    "openspec/**",
+    ".openspec/**",
     "*.lock",
     "package-lock.json",
     "pnpm-lock.yaml",
@@ -71,7 +82,7 @@ export async function loadConfig(cwd = process.cwd()): Promise<EnglogConfig> {
     return normalizeConfig(JSON.parse(raw) as RawEnglogConfig, cwd);
   } catch (error) {
     if (isNodeError(error) && error.code === "ENOENT") {
-      return { journalRoot: cwd, git: DEFAULT_GIT_CONFIG };
+      return { journalRoot: cwd, scanRoots: [], git: DEFAULT_GIT_CONFIG };
     }
     throw error;
   }
@@ -81,7 +92,7 @@ export async function writeDefaultConfig(cwd = process.cwd()): Promise<void> {
   const configPath = path.join(cwd, DEFAULT_CONFIG_FILE);
   const config: EnglogConfig = {
     journalRoot: ".",
-    defaultRepo: ".",
+    scanRoots: [],
     git: DEFAULT_GIT_CONFIG,
     analysis: {
       enabled: false,
@@ -107,9 +118,12 @@ export async function writeDefaultConfig(cwd = process.cwd()): Promise<void> {
 
 function normalizeConfig(config: RawEnglogConfig, cwd: string): EnglogConfig {
   return {
-    ...config,
+    device: config.device,
+    analysis: config.analysis,
     journalRoot: path.resolve(cwd, config.journalRoot ?? "."),
-    defaultRepo: config.defaultRepo ? path.resolve(cwd, config.defaultRepo) : undefined,
+    scanRoots: Array.isArray(config.scanRoots)
+      ? config.scanRoots.filter((root) => typeof root === "string").map((root) => path.resolve(cwd, root))
+      : [],
     git: normalizeGitConfig(config.git)
   };
 }
@@ -124,10 +138,18 @@ function normalizeGitConfig(config: Partial<GitConfig> | undefined): GitConfig {
 
   return {
     collectDiff: config?.collectDiff ?? DEFAULT_GIT_CONFIG.collectDiff,
+    includeAllBranches: config?.includeAllBranches ?? DEFAULT_GIT_CONFIG.includeAllBranches,
+    includeMergeCommits: config?.includeMergeCommits ?? DEFAULT_GIT_CONFIG.includeMergeCommits,
+    authorEmails: stringArray(config?.authorEmails),
+    excludeCommitMessages: stringArray(config?.excludeCommitMessages),
     maxDiffChars,
     maxFileDiffChars,
     exclude: Array.isArray(config?.exclude) ? config.exclude.filter((pattern) => typeof pattern === "string") : DEFAULT_GIT_CONFIG.exclude
   };
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item) => typeof item === "string" && item.trim().length > 0) : [];
 }
 
 function positiveInteger(value: unknown, fallback: number, field: string): number {
