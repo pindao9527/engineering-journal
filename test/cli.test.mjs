@@ -88,6 +88,29 @@ test("daily --no-git writes append-only events and preserves manual journal text
   assert.equal(eventFiles.filter((file) => file.endsWith(".json")).length, 2);
 });
 
+test("daily defaults journalRoot to the current directory when config omits it", async () => {
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "englog-default-root-"));
+  await writeFile(
+    path.join(cwd, "englog.config.json"),
+    `${JSON.stringify(
+      {
+        defaultRepo: ".",
+        analysis: {
+          enabled: false
+        }
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+
+  runCli(["daily", "--date", "2026-06-15", "--no-git"], cwd);
+
+  await assertFileExists(path.join(cwd, "data", "events", "2026-06-15"));
+  await assertFileExists(path.join(cwd, "journals", "daily", "2026-06-15.md"));
+});
+
 test("daily collects commits from a Git repository", async () => {
   const cwd = await mkdtemp(path.join(os.tmpdir(), "englog-git-"));
   runCommand("git", ["init"], cwd);
@@ -218,6 +241,7 @@ test("daily can enrich event analysis through an OpenAI-compatible API", async (
   const fetchMock = mock.method(globalThis, "fetch", async (url, init) => {
     requests.push({
       url: String(url),
+      authorization: init.headers.authorization,
       body: JSON.parse(String(init.body))
     });
 
@@ -254,8 +278,9 @@ test("daily can enrich event analysis through an OpenAI-compatible API", async (
             enabled: true,
             provider: "openai-compatible",
             api: "responses",
-            baseUrl: "https://ops-ai-gateway.yc345.tv/v1",
-            model: "gpt-5.5"
+            baseUrl: "https://api.openai.com/v1",
+            model: "gpt-5.5",
+            apiKey: "json-test-key"
           }
         },
         null,
@@ -273,7 +298,8 @@ test("daily can enrich event analysis through an OpenAI-compatible API", async (
     assert.deepEqual(event.analysis.summary, ["AI 归纳：生成日报骨架。"]);
     assert.deepEqual(event.tags, ["ai-analysis", "daily"]);
     assert.deepEqual(requests[0].body.model, "gpt-5.5");
-    assert.equal(requests[0].url, "https://ops-ai-gateway.yc345.tv/v1/responses");
+    assert.equal(requests[0].url, "https://api.openai.com/v1/responses");
+    assert.equal(requests[0].authorization, "Bearer json-test-key");
     assert.equal(typeof requests[0].body.input, "string");
 
     const journal = await readFile(path.join(cwd, "journals", "daily", "2026-06-15.md"), "utf8");
@@ -312,7 +338,7 @@ test("AI analysis payload includes collected diff when daily --include-diff is u
           enabled: true,
           provider: "openai-compatible",
           api: "responses",
-          baseUrl: "https://ops-ai-gateway.yc345.tv/v1",
+          baseUrl: "https://api.openai.com/v1",
           model: "gpt-5.5"
         }
       },
@@ -379,7 +405,7 @@ test("analyze daily supports dry-run and can re-analyze stored events", async ()
           enabled: true,
           provider: "openai-compatible",
           api: "responses",
-          baseUrl: "https://ops-ai-gateway.yc345.tv/v1",
+          baseUrl: "https://api.openai.com/v1",
           model: "gpt-5.5"
         }
       },

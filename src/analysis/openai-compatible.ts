@@ -57,7 +57,7 @@ export async function analyzeEventWithOpenAICompatibleApi(
   const api = config.api ?? "responses";
   const baseUrl = config.baseUrl ?? "https://api.openai.com/v1";
   const model = config.model ?? "gpt-5.5";
-  const apiKey = config.apiKeyEnv ? process.env[config.apiKeyEnv] : undefined;
+  const apiKey = config.apiKey?.trim();
   const headers: Record<string, string> = {
     "content-type": "application/json"
   };

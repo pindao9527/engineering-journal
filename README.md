@@ -239,19 +239,20 @@ AI 分析默认关闭。需要接入 OpenAI 兼容接口时，在 `englog.config
 
 ```json
 {
-  "journalRoot": ".",
   "defaultRepo": ".",
   "analysis": {
     "enabled": true,
     "provider": "openai-compatible",
     "api": "responses",
-    "baseUrl": "https://ops-ai-gateway.yc345.tv/v1",
+    "baseUrl": "https://api.openai.com/v1",
     "model": "gpt-5.5",
-    "apiKeyEnv": "OPENAI_API_KEY",
+    "apiKey": "your-api-key",
     "temperature": 0.2
   }
 }
 ```
+
+`journalRoot` 是日志写入目标目录，可以写在 `englog.config.json` 中，例如 `"journalRoot": "./my-journal"`；如果不配置，默认就是当前配置文件所在文件夹。
 
 ## Diff 采集与隐私
 
@@ -282,7 +283,7 @@ AI 分析默认关闭。需要接入 OpenAI 兼容接口时，在 `englog.config
 
 开启后，受限 diff 会写入事件 JSON 的 commit `diff` 字段，事件顶层也会记录 `diffCollection` 元信息，包括最大字符数、被排除文件和是否截断。默认排除 lockfile、构建产物、依赖目录、环境变量文件、证书密钥和常见二进制文件。若 AI 分析也已启用，这些受控 diff 会作为分析输入发送给你配置的 OpenAI-compatible 服务。
 
-`api` 默认使用 `responses`，会请求 `{baseUrl}/responses`；如需兼容旧服务，也可以设置为 `chat-completions`，请求 `{baseUrl}/chat/completions`。`baseUrl` 可以是 OpenAI 兼容服务的 `/v1` 根地址，也可以直接是完整的 `/responses` 或 `/chat/completions` 地址。本地兼容服务也可以使用类似 `http://localhost:11434/v1` 的地址。配置 `apiKeyEnv` 时，CLI 会从对应环境变量读取密钥并发送 Bearer token；不配置或环境变量为空时不会发送鉴权头。
+`api` 默认使用 `responses`，会请求 `{baseUrl}/responses`；如需兼容旧服务，也可以设置为 `chat-completions`，请求 `{baseUrl}/chat/completions`。`baseUrl` 可以是 OpenAI 兼容服务的 `/v1` 根地址，也可以直接是完整的 `/responses` 或 `/chat/completions` 地址。本地兼容服务也可以使用类似 `http://localhost:11434/v1` 的地址。配置 `apiKey` 时，CLI 会从 JSON 中读取密钥并发送 Bearer token；不配置或为空时不会发送鉴权头。
 
 启用后，`englog daily` 和 `englog daily --sync` 会在写入事件 JSON 前调用一次兼容接口，要求模型返回严格 JSON，并填充：
 

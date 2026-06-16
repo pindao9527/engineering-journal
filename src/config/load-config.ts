@@ -22,9 +22,14 @@ export interface AnalysisConfig {
   api?: "responses" | "chat-completions";
   baseUrl?: string;
   model?: string;
-  apiKeyEnv?: string;
+  apiKey?: string;
   temperature?: number;
 }
+
+type RawEnglogConfig = Omit<Partial<EnglogConfig>, "git" | "analysis"> & {
+  git?: Partial<GitConfig>;
+  analysis?: AnalysisConfig;
+};
 
 export const DEFAULT_CONFIG_FILE = "englog.config.json";
 
@@ -63,7 +68,7 @@ export async function loadConfig(cwd = process.cwd()): Promise<EnglogConfig> {
 
   try {
     const raw = await readFile(configPath, "utf8");
-    return normalizeConfig(JSON.parse(raw) as EnglogConfig, cwd);
+    return normalizeConfig(JSON.parse(raw) as RawEnglogConfig, cwd);
   } catch (error) {
     if (isNodeError(error) && error.code === "ENOENT") {
       return { journalRoot: cwd, git: DEFAULT_GIT_CONFIG };
@@ -84,7 +89,7 @@ export async function writeDefaultConfig(cwd = process.cwd()): Promise<void> {
       api: "responses",
       baseUrl: "https://api.openai.com/v1",
       model: "gpt-5.5",
-      apiKeyEnv: "OPENAI_API_KEY"
+      apiKey: ""
     }
   };
 
@@ -100,10 +105,10 @@ export async function writeDefaultConfig(cwd = process.cwd()): Promise<void> {
   }
 }
 
-function normalizeConfig(config: EnglogConfig, cwd: string): EnglogConfig {
+function normalizeConfig(config: RawEnglogConfig, cwd: string): EnglogConfig {
   return {
     ...config,
-    journalRoot: path.resolve(cwd, config.journalRoot),
+    journalRoot: path.resolve(cwd, config.journalRoot ?? "."),
     defaultRepo: config.defaultRepo ? path.resolve(cwd, config.defaultRepo) : undefined,
     git: normalizeGitConfig(config.git)
   };
